@@ -1,0 +1,332 @@
+---
+title: "sequence_variant_analysis"
+author: "Deanna S Beatty"
+date: "4/4/2023"
+output: html_document
+---
+
+```{r setup} 
+knitr::opts_chunk$set(eval = TRUE, echo = FALSE, include = TRUE, fig.show=TRUE) #global options
+```
+
+Package versions
+
+```{r, echo=FALSE, message=FALSE}
+library(phyloseq); packageVersion("phyloseq")
+library(vegan); packageVersion("vegan")
+library(ggplot2); packageVersion("ggplot2")
+library(tidyverse); packageVersion("tidyverse")
+library(ggpubr); packageVersion("ggpubr")
+library(ggsci); packageVersion("ggsci")
+library(scales); packageVersion("scales")
+```
+
+```{r import phyloseq objects, results=FALSE}
+Fish_phyloseq_nonrarefied_nonclustered <- readRDS(file = "output/phyloseq_object/Fish_phyloseq_nonrarefied_nonclustered.rds")
+
+# order factor levels
+sample_data(Fish_phyloseq_nonrarefied_nonclustered)$RegionName <- factor(sample_data(Fish_phyloseq_nonrarefied_nonclustered)$RegionName, levels = c("Alaska", "British Columbia", "Washington", "Oregon", "Bodega", "San Diego"))
+
+sample_data(Fish_phyloseq_nonrarefied_nonclustered)$Region <- factor(sample_data(Fish_phyloseq_nonrarefied_nonclustered)$Region, levels = c("AK", "BC", "WA", "OR", "BB", "SD"))
+
+```
+
+```{r species assignments}
+# non-rarefied and non-clustered data 
+# melt phyloseq object to df
+Fish_nonrarefied_nonclustered <- psmelt(Fish_phyloseq_nonrarefied_nonclustered)
+# remove non-EWD sites
+Fish_nonrarefied_nonclustered <- Fish_nonrarefied_nonclustered %>% filter(SiteName != "Drakes Estero") %>% filter(SiteName != "Sacramento Landing") %>% filter(Abundance != "0") %>%  select(-RegionName)
+
+length(unique(Fish_nonrarefied_nonclustered$OTU)) # 4861 sequence variants ("OTU" in phyloseq objects are hashid of sequence variants from DADA2)
+Fish_nonrarefied_nonclustered_seq_variants_spp_assignments <- filter(Fish_nonrarefied_nonclustered, !is.na(Species))
+length(unique(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments$OTU)) # 1982 sequence variants with species level assignments (41% of sequences have species assignments)
+length(unique(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments$Species)) # 32 unique species
+unique(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments$Species)
+eDNA_species_2019_2020 <- as.data.frame(unique(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments$Species))
+names(eDNA_species_2019_2020)[1] <- "Taxonomy"
+
+species_subset <- subset(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments, select = c(Abundance, Species, SiteName, Region, Year, Sample, OTU))  %>% arrange(Sample)
+sp_table = list()
+spp_assigned_sv = unique(species_subset$Species)
+
+for (i in seq_along(spp_assigned_sv)) {
+  temp = filter(species_subset, Species == spp_assigned_sv[i])
+  number_sv = length(unique(temp$OTU))
+  name = spp_assigned_sv[i]
+  row = data.frame(Species = name, Number_of_sequence_variants = number_sv)
+  sp_table[[i]] <- row
+}
+
+# bind list items with bind_rows
+sp_table_sv <- bind_rows(sp_table) # range 1 - 823 sequence variants per species
+
+write.csv("output/stats/sequence_variants_per_species.csv")
+
+Fish_2019 <- Fish_nonrarefied_nonclustered %>% filter(Year == "2019")
+length(unique(Fish_2019$OTU)) # 2438 unique sequence variants
+sum(Fish_2019$Abundance) # 4436507 total sequences
+
+Fish_2020 <- Fish_nonrarefied_nonclustered %>% filter(Year == "2020")
+length(unique(Fish_2020$OTU)) # 2488 unique sequence variants
+sum(Fish_2020$Abundance) # 5378189 total sequences
+
+# unique sequence variants for each region
+AK <- Fish_2019 %>% filter(Region == "AK") %>% filter(Abundance != "0")
+BC <- Fish_2019 %>% filter(Region == "BC") %>% filter(Abundance != "0")
+WA <- Fish_2019 %>% filter(Region == "WA") %>% filter(Abundance != "0")
+OR <- Fish_2019 %>% filter(Region == "OR") %>% filter(Abundance != "0")
+BB <- Fish_2019 %>% filter(Region == "BB") %>% filter(Abundance != "0")
+SD <- Fish_2019 %>% filter(Region == "SD") %>% filter(Abundance != "0")
+
+BB_2020 <- Fish_2020 %>% filter(Abundance != "0")
+
+AK_sv <- length(unique(AK$OTU))
+AK_sv # 429
+
+BC_sv <- length(unique(BC$OTU))
+BC_sv # 382
+
+WA_sv <- length(unique(WA$OTU))
+WA_sv # 390
+
+OR_sv <- length(unique(OR$OTU))
+OR_sv # 413
+
+BB_sv <- length(unique(BB$OTU))
+BB_sv # 539
+
+SD_sv <- length(unique(SD$OTU))
+SD_sv # 343
+
+```
+
+```{r sequence variant accum vegan}
+
+# subset to columns abundance, sample, OTU
+df_sub <- subset(Fish_nonrarefied_nonclustered, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_sub_w <- df_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_sub_w) <- df_sub_w$Sample
+# remove sample column
+df_sp_all <- subset(df_sub_w, select = -c(Sample))
+df_sp_all[is.na(df_sp_all)] <- 0
+
+# spec accum for all data
+SpAccAll <- specaccum(df_sp_all, method = "random")
+summary(SpAccAll)
+plot(SpAccAll, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccAll)
+SpAccAll
+
+#creating a dataframe for ggplot2
+SpAccAlldf <- data.frame(Sites=as.numeric(SpAccAll$sites), Richness=SpAccAll$richness, SD=SpAccAll$sd)
+SpAccAlldf$Sites <- order(SpAccAlldf$Sites)
+
+ggplot(SpAccAlldf, aes(x = Richness)) + geom_histogram() # skewed distribution of richness
+
+eDNA_sv_acumm <- ggplot(data=SpAccAlldf, aes(x=Sites, y=Richness)) +
+  geom_point(aes(x=Sites, y=Richness)) +
+  geom_line(aes(x=Sites, y=Richness)) +
+  geom_ribbon(aes(x=Sites, ymin=(Richness-SD),ymax=(Richness+SD)),alpha=0.2) +
+  theme(axis.text=element_text(size=18), axis.title = element_text(size = 18) ) +
+  ylab("Sequence variant richness") +
+  xlab("Sample size")
+
+eDNA_sv_acumm
+
+# repeat on 2019 samples only
+# subset to columns abundance, sample, OTU
+Fish_2019_sub <- subset(Fish_2019, select = c(Abundance, Sample, OTU))
+# pivot wider
+Fish_2019_sub_w <- Fish_2019_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# make column Sample to row names
+Fish_2019_sp <- Fish_2019_sub_w %>% remove_rownames %>% column_to_rownames(var="Sample")
+Fish_2019_sp[is.na(Fish_2019_sp)] <- 0
+
+# spec accum 
+SpAccFish2019 <- specaccum(comm=Fish_2019_sp, method = "random")
+summary(SpAccFish2019)
+plot(SpAccFish2019, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccFish2019)
+SpAccFish2019
+
+#creating a dataframe for ggplot2
+SpAccFish2019df <- data.frame(Sites=as.numeric(SpAccFish2019$sites), Richness=SpAccFish2019$richness, SD=SpAccFish2019$sd)
+SpAccFish2019df$Sites <- order(SpAccFish2019df$Sites)
+
+eDNA_sv_acumm_2019 <- ggplot(data=SpAccFish2019df) +
+  geom_point(aes(x=Sites, y=Richness)) +
+  geom_line(aes(x=Sites, y=Richness)) +
+  scale_colour_manual(values = "darkgray") +
+  scale_x_continuous(breaks=c(0,10,20,30,40,50,60, 70, 80,90), limits = c(0, 90)) +
+  geom_ribbon(aes(x=Sites, ymin=(Richness-SD),ymax=(Richness+SD)),alpha=0.2) +
+  theme(axis.text=element_text(size=16), axis.title = element_text(size = 18) ) +
+  theme_classic() +
+  ylab("Sequence variant richness") +
+  xlab("Sample size")
+
+eDNA_sv_acumm_2019
+
+# AK format data
+df_AK <- filter(Fish_2019, Region == "AK")
+df_AK <- subset(df_AK, select = c(Abundance, Sample, OTU))
+df_AK_w <- df_AK %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+df_AK_w <- subset(df_AK_w, select = -c(Sample))
+df_AK_w[is.na(df_AK_w)] <- 0
+
+# specaccum
+SpAccAK <- specaccum(df_AK_w, method = "random")
+summary(SpAccAK)
+plot(SpAccAK, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccAK)
+SpAccAK
+
+#creating a dataframe for ggplot2
+SpAccAKdf <- data.frame(Sites=as.numeric(SpAccAK$sites), Richness=SpAccAK$richness, SD=SpAccAK$sd)
+SpAccAKdf$Sites <- order(SpAccAKdf$Sites)
+SpAccAKdf$Region <- c("AK")
+
+eDNA_sv_acumm_AK <- ggplot(data=SpAccAKdf) +
+  geom_point(aes(x=Sites, y=Richness)) +
+  scale_x_continuous(breaks=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)) +
+  geom_line(aes(x=Sites, y=Richness)) +
+  geom_ribbon(aes(x=Sites, ymin=(Richness-SD),ymax=(Richness+SD)),alpha=0.2) +
+  theme(axis.text=element_text(size=14), axis.title = element_text(size = 14)) +
+  ylab("OTU richness") +
+  xlab("Sample size")
+
+eDNA_sv_acumm_AK
+
+# BC format data
+df_BC <- filter(Fish_2019, Region == "BC")
+df_BC <- subset(df_BC, select = c(Abundance, Sample, OTU))
+df_BC_w <- df_BC %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+df_BC_w <- subset(df_BC_w, select = -c(Sample))
+df_BC_w[is.na(df_BC_w)] <- 0
+
+# specaccum
+SpAccBC <- specaccum(df_BC_w, method = "random")
+summary(SpAccBC)
+plot(SpAccBC, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccBC)
+SpAccBC
+
+#creating a dataframe for ggplot2
+SpAccBCdf <- data.frame(Sites=as.numeric(SpAccBC$sites), Richness=SpAccBC$richness, SD=SpAccBC$sd)
+SpAccBCdf$Sites <- order(SpAccBCdf$Sites)
+SpAccBCdf$Region <- c("BC")
+
+# WA format data
+df_WA <- filter(Fish_2019, Region == "WA")
+df_WA <- subset(df_WA, select = c(Abundance, Sample, OTU))
+df_WA_w <- df_WA %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+df_WA_w <- subset(df_WA_w, select = -c(Sample))
+df_WA_w[is.na(df_WA_w)] <- 0
+
+# specaccum
+SpAccWA <- specaccum(df_WA_w, method = "random")
+summary(SpAccWA)
+plot(SpAccWA, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccWA)
+SpAccWA
+
+#creating a dataframe for ggplot2
+SpAccWAdf <- data.frame(Sites=as.numeric(SpAccWA$sites), Richness=SpAccWA$richness, SD=SpAccWA$sd)
+SpAccWAdf$Sites <- order(SpAccWAdf$Sites)
+SpAccWAdf$Region <- c("WA")
+
+# OR format data
+df_OR <- filter(Fish_2019, Region == "OR")
+df_OR <- subset(df_OR, select = c(Abundance, Sample, OTU))
+df_OR_w <- df_OR %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+df_OR_w <- subset(df_OR_w, select = -c(Sample))
+df_OR_w[is.na(df_OR_w)] <- 0
+
+# specaccum
+SpAccOR <- specaccum(df_OR_w, method = "random")
+summary(SpAccOR)
+plot(SpAccOR, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccOR)
+SpAccOR
+
+#creating a dataframe for ggplot2
+SpAccORdf <- data.frame(Sites=as.numeric(SpAccOR$sites), Richness=SpAccOR$richness, SD=SpAccOR$sd)
+SpAccORdf$Sites <- order(SpAccORdf$Sites)
+SpAccORdf$Region <- c("OR")
+
+# BB format data
+df_BB <- filter(Fish_2019, Region == "BB")
+df_BB <- subset(df_BB, select = c(Abundance, Sample, OTU))
+df_BB_w <- df_BB %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+df_BB_w <- subset(df_BB_w, select = -c(Sample))
+df_BB_w[is.na(df_BB_w)] <- 0
+
+# specaccum
+SpAccBB <- specaccum(df_BB_w, method = "random")
+summary(SpAccBB)
+plot(SpAccBB, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccBB)
+SpAccBB
+
+#creating a dataframe for ggplot2
+SpAccBBdf <- data.frame(Sites=as.numeric(SpAccBB$sites), Richness=SpAccBB$richness, SD=SpAccBB$sd)
+SpAccBBdf$Sites <- order(SpAccBBdf$Sites)
+SpAccBBdf$Region <- c("BB")
+
+# SD format data
+df_SD <- filter(Fish_2019, Region == "SD")
+df_SD <- subset(df_SD, select = c(Abundance, Sample, OTU))
+df_SD_w <- df_SD %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+df_SD_w <- subset(df_SD_w, select = -c(Sample))
+df_SD_w[is.na(df_SD_w)] <- 0
+
+# specaccum
+SpAccSD <- specaccum(df_SD_w, method = "random")
+summary(SpAccSD)
+plot(SpAccSD, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccSD)
+SpAccSD
+
+#creating a dataframe for ggplot2
+SpAccSDdf <- data.frame(Sites=as.numeric(SpAccSD$sites), Richness=SpAccSD$richness, SD=SpAccSD$sd)
+SpAccSDdf$Sites <- order(SpAccSDdf$Sites)
+SpAccSDdf$Region <- c("SD")
+
+# rbind estuary dfs
+all_regions_specaccum <- rbind(SpAccAKdf, SpAccBCdf, SpAccWAdf, SpAccORdf, SpAccBBdf, SpAccSDdf)
+all_regions_specaccum$Region <- factor(all_regions_specaccum$Region, levels = c("AK", "BC", "WA", "OR", "BB", "SD"))
+
+# assign hexidecimal color codes to variable
+mypal_locuszoom <- pal_locuszoom("default")(7)
+show_col(mypal_locuszoom)
+
+eDNA_sv_acumm_all_regions <- ggplot(data=all_regions_specaccum, mapping = aes(color = Region)) +
+  geom_point(aes(x=Sites, y=Richness)) +
+  scale_x_continuous(breaks=c(1,2,3,4,5,6,7,8,9,10,11, 12, 13, 14, 15,16,17,18)) +
+  scale_y_continuous(breaks=c(100,200,300,400,500,600), limits = c(0,600)) +
+  scale_colour_manual(values = mypal_locuszoom) +
+  geom_line(aes(x=Sites, y=Richness)) +
+  geom_ribbon(aes(x=Sites, ymin=(Richness-SD),ymax=(Richness+SD)),alpha=0.1) +
+  theme(axis.text=element_text(size=16), axis.title = element_text(size = 18)) +
+  theme_classic() +
+  ylab("Sequence variant richness") +
+  xlab("Sample size")
+
+eDNA_sv_acumm_all_regions
+
+Figure_sequence_variant_acumm_stack <- ggarrange(eDNA_sv_acumm_2019,eDNA_sv_acumm_all_regions, labels = c("A", "B"), ncol = 1, nrow = 2, align = "hv", heights = c(1,1))
+Figure_sequence_variant_acumm_stack
+ggsave(Figure_sequence_variant_acumm_stack, file = "output/plots/Figure_sequence_variant_acumm_stack_2019.png", 
+        dpi = 400, device = "png", width = 11, height = 8.5, units = "in")
+
+```

@@ -47,3 +47,15 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# .DS_Store
+.DS_Store
+
+# fastq files and intermediate files
+/input/*
+/output/*
+/ref_database/*
+/metadata/*
+/clean/*
+/raw/*
+/summary/*
