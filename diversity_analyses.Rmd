@@ -1,0 +1,1804 @@
+---
+title: "diversity_analyses"
+author: "Deanna Beatty"
+output: html_document
+---
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(eval = TRUE, echo = FALSE, include = TRUE, fig.show=TRUE) #global options
+```
+
+package versions 
+```{r load packages, echo=FALSE, message=FALSE}
+library(phyloseq); packageVersion("phyloseq")
+library(vegan); packageVersion("vegan")
+library(mgcv); packageVersion("mgcv")
+library(ggplot2); packageVersion("ggplot2")
+library(data.table); packageVersion("data.table")
+library(tidyverse); packageVersion("tidyverse")
+library(ggpubr); packageVersion("ggpubr")
+library(ggsci); packageVersion("ggsci")
+library(scales); packageVersion("scales")
+library(glue); packageVersion("glue")
+library(stats); packageVersion("stats")
+library(randomForest); packageVersion("Randomforest")
+library(caret); packageVersion("caret")
+library(nlme); packageVersion("nlme")
+library(lmPerm); packageVersion("lmPerm")
+library(ggeffects); packageVersion("ggeffects")
+
+gsub("[[:punct:][:space:]]", "-", Sys.time())
+```
+
+```{r read in rds files, results=FALSE}
+fish_2019_phyloseq <- readRDS(file = "output/phyloseq_object/fish_2019_phyloseq_v2.rds")
+fish_2019_nonrarefied_phyloseq <- readRDS(file = "output/phyloseq_object/fish_2019_nonrarefied_phyloseq_v2.rds")
+fish_2020_phyloseq <- readRDS(file = "output/phyloseq_object/fish_2020_phyloseq_v2.rds")
+fish_2020_nonrarefied_phyloseq <- readRDS(file = "output/phyloseq_object/fish_2020_nonrarefied_phyloseq_v2.rds")
+
+# order factor levels
+sample_data(fish_2019_phyloseq)$RegionName <- factor(sample_data(fish_2019_phyloseq)$RegionName, levels = c("Alaska", "British Columbia", "Washington", "Oregon", "Bodega", "San Diego"))
+
+sample_data(fish_2019_phyloseq)$Region <- factor(sample_data(fish_2019_phyloseq)$Region, levels = c("AK", "BC", "WA", "OR", "BB", "SD"))
+
+sample_data(fish_2019_nonrarefied_phyloseq)$RegionName <- factor(sample_data(fish_2019_nonrarefied_phyloseq)$RegionName, levels = c("Alaska", "British Columbia", "Washington", "Oregon", "Bodega", "San Diego"))
+
+sample_data(fish_2019_nonrarefied_phyloseq)$Region <- factor(sample_data(fish_2019_nonrarefied_phyloseq)$Region, levels = c("AK", "BC", "WA", "OR", "BB", "SD"))
+
+# remove samples from sites in Bodega that are not part of wasting disease study
+remove <- c("Sacramento Landing", "Drakes Estero")
+fish_2019_phyloseq <- prune_samples(!sample_data(fish_2019_phyloseq)$SiteName %in% remove, fish_2019_phyloseq)
+
+fish_2019_nonrarefied_phyloseq <-  prune_samples(!sample_data(fish_2019_nonrarefied_phyloseq)$SiteName %in% remove, fish_2019_nonrarefied_phyloseq)
+
+```
+
+```{r correlation}
+# extract metadata associated with samples
+metadata_all <- data.frame(sample_data(fish_2019_phyloseq))
+
+# test correlation of LLLM and shoot density
+cor_LLLM_density <- cor.test(metadata_all$LongestBladeLengthMean, metadata_all$DensityShootsMean)
+capture.output(cor_LLLM_density, file = "output/stats/correlation_LLLM_shoot_density.txt")
+
+```
+
+```{r betadiv on 97% clusters rarefied}
+# subset to samples with SST data (72)
+fish_2019_phyloseq_SST <- fish_2019_phyloseq %>% 
+  subset_samples(!is.na(SST))
+
+# extract metadata as dataframe
+metadata_2019_SST <- data.frame(sample_data(fish_2019_phyloseq_SST))
+
+# bray curtis dissimilarity
+fish_2019_SST_bray <- distance(fish_2019_phyloseq_SST, method = "bray")
+
+# pcoa ordination
+fish_2019_SST_bray_ord <- ordinate(fish_2019_phyloseq_SST, method = "PCoA", distance = fish_2019_SST_bray)
+
+# adonis2
+# by margin
+fish_2019_SST_bray_ord_adonis <- adonis2(fish_2019_SST_bray ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + SST + Region, by = "margin", data = metadata_2019_SST)
+
+fish_2019_SST_bray_ord_adonis
+write.csv(fish_2019_SST_bray_ord_adonis, "output/stats/fish_2019_bray_adonis_margin.csv")
+# factors
+fish_factor <- c("Lesion prevalence mean", "Lesion severity mean", "Shoot density Mean", "Longest leaf length mean", "SST", "Region", "Residual", "Total")
+adonis_df <- data.frame(fish_2019_SST_bray_ord_adonis$Df, fish_2019_SST_bray_ord_adonis$SumOfSqs,
+                        fish_2019_SST_bray_ord_adonis$R2, fish_2019_SST_bray_ord_adonis$F,
+                        fish_2019_SST_bray_ord_adonis$`Pr(>F)`)
+adonis_df$Factor <- fish_factor
+adonis_df <- adonis_df[ , c(6,1,2,3,4,5)]
+adonis_df <- rename(adonis_df, "Pr(>F)" = fish_2019_SST_bray_ord_adonis..Pr..F.., "F"=fish_2019_SST_bray_ord_adonis.F, R2 = fish_2019_SST_bray_ord_adonis.R2, SumOfSqs = fish_2019_SST_bray_ord_adonis.SumOfSqs, Df = fish_2019_SST_bray_ord_adonis.Df)
+write.csv(adonis_df, "output/stats/fish_2019_bray_adonis_margin_formatted.csv")
+
+#plot by longest blade length mean
+fish_2019_bray_ord_PCoA_LBLM <- plot_ordination(fish_2019_phyloseq_SST,fish_2019_SST_bray_ord) + 
+  geom_point(mapping = aes(color = LongestBladeLengthMean,  shape = Region), size = 6, stroke = 2) +
+  scale_color_viridis_c(direction = -1) +
+  scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+  theme_classic() +
+  theme(legend.title = element_text(size=14), legend.text = element_text(size=14), axis.text=element_text(size=14), axis.title = element_text(size = 14) ) +
+  labs(shape = "Region", color = "Longest leaf length mean (mm)") +
+  guides(color = guide_legend(override.aes = list(size=4)), shape = guide_legend(override.aes = list(size=4)))
+
+fish_2019_bray_ord_PCoA_LBLM
+
+ggsave(fish_2019_bray_ord_PCoA_LBLM, file = "output/plots/fish_2019_bray_ord_PCoA_LLLM_region_shape_viridis.png", dpi = 400, device = "png", width = 11, height = 8.5, units = "in")
+
+```
+
+```{r betadisp}
+betadisp_fish_2019_SST <- betadisper(fish_2019_SST_bray, type = c("centroid"), metadata_2019_SST$Region) 
+betadisp_fish_2019_SST
+betadisp_distances = as.data.frame(betadisp_fish_2019_SST$group.distances)
+betadisp_distances
+write.csv(betadisp_distances, "output/stats/fish_2019_betadisp_distances.csv")
+
+betadisp_pairwise = permutest(betadisp_fish_2019_SST, pairwise = TRUE)
+betadisp_pairwise
+
+betadisp_table = betadisp_pairwise$tab
+write.csv(betadisp_table, "output/stats/fish_2019_betadisp_stat.csv")
+
+betadisp_pairwise_p_value = as.data.frame(betadisp_pairwise$pairwise)
+betadisp_pairwise_p_value
+
+write.csv(betadisp_pairwise_p_value, "output/stats/fish_2019_betadisp_pairwise_stat.csv")
+```
+
+```{r betadiv Bodega}
+# 2019 Bodega summary metadata
+BB_2019_phy <- prune_samples(sample_data(fish_2019_phyloseq)$Region == "BB", fish_2019_phyloseq)
+# remove OTUs with zero sum abundance across samples in this phyloseq object
+BB_2019_phy = filter_taxa(BB_2019_phy, function(x) sum(x) > 0, TRUE)
+
+# extract metadata as dataframe
+metadata_2019_BB <- data.frame(sample_data(BB_2019_phy))
+
+# add column for bay
+metadata_2019_BB$Bay <- metadata_2019_BB$SiteName
+metadata_2019_BB <- metadata_2019_BB %>% mutate(Bay = recode(Bay, 
+                              "Masons Marina" = "Bodega", 
+                                 "Campbell Cove" = "Bodega",
+                                "Westside Park" = "Bodega",
+                                 "Blakes Landing" = "Tomales", 
+                                "Nicks Cove" = "Tomales", 
+                                "Millerton" = "Tomales"
+                                ))
+# replace metadata in phyloseq object with new metadata
+sample_data(BB_2019_phy) <- metadata_2019_BB
+
+# bray curtis dissimilarity
+fish_2019_bray_BB <- distance(BB_2019_phy, method = "bray")
+
+# pcoa ordination
+fish_2019_bray_ord_BB <- ordinate(BB_2019_phy, method = "PCoA", distance = fish_2019_bray_BB)
+
+# adonis2
+fish_2019_bray_ord_adonis_margin_BB <- adonis2(fish_2019_bray_BB ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + Bay, by = "margin", data = metadata_2019_BB)
+
+fish_2019_bray_ord_adonis_margin_BB
+
+write.csv(fish_2019_bray_ord_adonis_margin_BB, "output/stats/fish_2019_bray_adonis_margin_BB_eDNA.csv")
+# factors
+fish_factor <- c("Lesion prevalence mean", "Lesion severity mean", "Shoot density mean", "Longest leaf length mean", "Bay", "Residual", "Total")
+adonis_df_BB_eDNA <- data.frame(fish_2019_bray_ord_adonis_margin_BB$Df, fish_2019_bray_ord_adonis_margin_BB$SumOfSqs,
+                        fish_2019_bray_ord_adonis_margin_BB$R2, fish_2019_bray_ord_adonis_margin_BB$F,
+                        fish_2019_bray_ord_adonis_margin_BB$`Pr(>F)`)
+adonis_df_BB_eDNA$Factor <- fish_factor
+adonis_df_BB_eDNA <- adonis_df_BB_eDNA[ , c(6,1,2,3,4,5)]
+adonis_df_BB_eDNA <- rename(adonis_df_BB_eDNA, "Pr(>F)" = fish_2019_bray_ord_adonis_margin_BB..Pr..F.., "F"=fish_2019_bray_ord_adonis_margin_BB.F, R2 = fish_2019_bray_ord_adonis_margin_BB.R2, SumOfSqs = fish_2019_bray_ord_adonis_margin_BB.SumOfSqs, Df = fish_2019_bray_ord_adonis_margin_BB.Df)
+write.csv(adonis_df_BB_eDNA, "output/stats/fish_2019_bray_adonis_margin_formatted_BB_eDNA.csv")
+
+# order factor levels
+sample_data(BB_2019_phy)$SiteName <- factor(sample_data(BB_2019_phy)$SiteName, levels = c("Westside Park", "Masons Marina", "Campbell Cove", "Nicks Cove", "Blakes Landing", "Millerton"))
+
+#plot by longest leaf length
+fish_2019_bray_ord_PCoA_LLLM_BB <- plot_ordination(BB_2019_phy,fish_2019_bray_ord_BB) + 
+  geom_point(mapping = aes(color = LongestBladeLengthMean, shape = Bay), size = 7, stroke = 2) +
+  scale_color_viridis_c(direction = -1) +
+  scale_shape_manual(values=c(4, 9)) +
+  theme_classic() +
+  theme(legend.title = element_text(size=14), legend.text = element_text(size=14), axis.text=element_text(size=14), axis.title = element_text(size = 14) ) +
+  labs(shape = "Bay", color = "Longest leaf length mean (mm)") +
+  guides(color = guide_legend(override.aes = list(size=4)), shape = guide_legend(override.aes = list(size=4)))
+
+fish_2019_bray_ord_PCoA_LLLM_BB
+
+ggsave(fish_2019_bray_ord_PCoA_LLLM_BB, file = "output/plots/fish_2019_bray_ord_PCoA_LLLM_BB_viridis_Bay.png", dpi = 400, device = "png", width = 11, height = 8.5, units = "in")
+
+## 2020
+# order factor levels
+sample_data(fish_2020_phyloseq)$SiteName <- factor(sample_data(fish_2020_phyloseq)$SiteName, levels = c("Westside Park", "Masons Marina", "Campbell Cove", "Nicks Cove", "Blakes Landing", "Millerton"))
+# extract metadata as dataframe
+metadata_2020_BB <- data.frame(sample_data(fish_2020_phyloseq))
+
+# add column for bay
+metadata_2020_BB$Bay <- metadata_2020_BB$SiteName
+metadata_2020_BB <- metadata_2020_BB %>% mutate(Bay = recode(Bay, 
+                              "Masons Marina" = "Bodega", 
+                                 "Campbell Cove" = "Bodega",
+                                "Westside Park" = "Bodega",
+                                 "Blakes Landing" = "Tomales", 
+                                "Nicks Cove" = "Tomales", 
+                                "Millerton" = "Tomales"
+                                ))
+# replace metadata in phyloseq object with updated metadata
+sample_data(fish_2020_phyloseq) <- metadata_2020_BB
+# bray curtis dissimilarity
+fish_2020_bray_BB <- distance(fish_2020_phyloseq, method = "bray")
+
+# pcoa ordination
+fish_2020_bray_ord_BB <- ordinate(fish_2020_phyloseq, method = "PCoA", distance = fish_2020_bray_BB)
+
+# adonis2
+fish_2020_bray_ord_adonis_margin_BB <- adonis2(fish_2020_bray_BB ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + Bay, by = "margin", data = metadata_2020_BB)
+
+fish_2020_bray_ord_adonis_margin_BB
+write.csv(fish_2020_bray_ord_adonis_margin_BB, "output/stats/fish_2020_bray_adonis_margin_BB_eDNA.csv")
+
+# factors
+fish_factor <- c("Lesion prevalence mean", "Lesion severity mean", "Shoot density mean", "Longest leaf length mean", "Bay", "Residual", "Total")
+adonis_df_BB_eDNA_2020 <- data.frame(fish_2020_bray_ord_adonis_margin_BB$Df, fish_2020_bray_ord_adonis_margin_BB$SumOfSqs,
+                        fish_2020_bray_ord_adonis_margin_BB$R2, fish_2020_bray_ord_adonis_margin_BB$F,
+                        fish_2020_bray_ord_adonis_margin_BB$`Pr(>F)`)
+adonis_df_BB_eDNA_2020$Factor <- fish_factor
+adonis_df_BB_eDNA_2020 <- adonis_df_BB_eDNA_2020[ , c(6,1,2,3,4,5)]
+adonis_df_BB_eDNA_2020 <- rename(adonis_df_BB_eDNA_2020, "Pr(>F)" = fish_2020_bray_ord_adonis_margin_BB..Pr..F.., "F"=fish_2020_bray_ord_adonis_margin_BB.F, R2 = fish_2020_bray_ord_adonis_margin_BB.R2, SumOfSqs = fish_2020_bray_ord_adonis_margin_BB.SumOfSqs, Df = fish_2020_bray_ord_adonis_margin_BB.Df)
+write.csv(adonis_df_BB_eDNA_2020, "output/stats/fish_2020_bray_adonis_margin_formatted_BB_eDNA.csv")
+
+#plot by longest leaf length
+fish_2020_bray_ord_PCoA_LLLM_BB <- plot_ordination(fish_2020_phyloseq,fish_2020_bray_ord_BB, shape = "Bay") + 
+  geom_point(mapping = aes(color = LongestBladeLengthMean), size = 5, stroke = 2) +
+  scale_color_viridis_c(direction = -1) +
+  scale_shape_manual(values=c(4,9)) +
+  theme_classic() +
+  theme(legend.title = element_text(size=14), legend.text = element_text(size=14), axis.text=element_text(size=14), axis.title = element_text(size = 14) ) +
+  labs(shape = "Bay", color = "Longest leaf length mean (mm)") +
+  guides(color = guide_legend(override.aes = list(size=4)), shape = guide_legend(override.aes = list(size=4)))
+
+fish_2020_bray_ord_PCoA_LLLM_BB
+
+ggsave(fish_2020_bray_ord_PCoA_LLLM_BB, file = "output/plots/fish_2020_bray_ord_PCoA_LLLM_BB_viridis_bay.png", dpi = 400, device = "png", width = 8, height = 8, units = "in")
+
+# shoot density
+fish_2020_bray_ord_PCoA_shoot_density_BB <- plot_ordination(fish_2020_phyloseq,fish_2020_bray_ord_BB, shape = "Bay") + 
+  geom_point(mapping = aes(color = DensityShootsMean), size = 5, stroke = 2) +
+  scale_color_viridis_c(direction = -1) +
+  scale_shape_manual(values=c(4,9), guide = "none") +
+  theme_classic() +
+  theme(legend.title = element_text(size=14), legend.text = element_text(size=14), axis.text=element_text(size=14), axis.title = element_text(size = 14) ) +
+  labs(shape = "Bay", color = bquote("Shoot density per"~m^2~"mean")) +
+  guides(color = guide_legend(override.aes = list(size=4)))
+ 
+fish_2020_bray_ord_PCoA_shoot_density_BB
+
+ggsave(fish_2020_bray_ord_PCoA_shoot_density_BB, file = "output/plots/fish_2020_bray_ord_PCoA_shoot_density_BB_viridis_bay.png", dpi = 400, device = "png", width = 11, height = 8.5, units = "in")
+
+# ggarrange PCoA plots for LLLM and shoot density
+fish_2020_bray_ord_PCoA_BB_both <- ggarrange(fish_2020_bray_ord_PCoA_LLLM_BB,fish_2020_bray_ord_PCoA_shoot_density_BB,
+                 labels = c("A", "B"), ncol = 1, nrow = 2, align = "hv", heights = c(1,1))
+
+fish_2020_bray_ord_PCoA_BB_both
+
+ggsave(fish_2020_bray_ord_PCoA_BB_both, file = "output/plots/fish_2020_bray_ord_PCoA_BB_both_bay.png", dpi = 400, device = "png",width = 8, height = 8, units = "in")
+
+```
+
+```{r betadiv Bodega seine data}
+# read in summary of species counts per seine
+BB_seine_2019_count_summary_EWD_sites <- read.csv("summary/BB_seine_2019_count_summary_EWD_sites.csv")
+
+# pivot wider to have species as columns
+BB_seine_2019_format_wider <- BB_seine_2019_count_summary_EWD_sites %>%
+  pivot_wider(names_from = Species, values_from = Count_seine) %>% 
+  as.data.frame()
+# sample as rownames
+rownames(BB_seine_2019_format_wider) <- BB_seine_2019_format_wider$Sample
+# remove sample column
+BB_seine_2019_format_wider <- BB_seine_2019_format_wider[, -1]
+# replace NA with zero counts
+BB_seine_2019_format_wider <- BB_seine_2019_format_wider %>% replace(is.na(.), 0)
+# convert to matrix
+BB_seine_2019_matrix <- as.matrix(BB_seine_2019_format_wider)
+
+# distance
+dist <- vegdist(BB_seine_2019_matrix, method = "bray")
+
+# plot pcoa 
+cmdscale(dist) %>% plot()
+# pcoa with correction for negative eigenvalues
+pcoa <- cmdscale(dist, k=2, eig = TRUE, add = TRUE)
+pcoa %>% str()
+pcoa %>% head()
+
+# extract pcoa coordinates
+positions <- pcoa$points
+# give meaningful names to columns
+colnames(positions) <- c("pcoa1", "pcoa2")
+
+# read in metadata for EWD sites
+BB_seine_2019_EWD_metadata <- read.csv("clean/BB_seine_2019_EWD_metadata.csv")
+
+# add column for bay
+BB_seine_2019_EWD_metadata$Bay <- BB_seine_2019_EWD_metadata$SiteName
+BB_seine_2019_EWD_metadata <- BB_seine_2019_EWD_metadata %>% mutate(Bay = recode(Bay, 
+                              "Masons Marina" = "Bodega", 
+                                 "Campbell Cove" = "Bodega",
+                                "Westside Park" = "Bodega",
+                                 "Blakes Landing" = "Tomales", 
+                                "Nicks Cove" = "Tomales", 
+                                "Millerton" = "Tomales"
+                                ))
+
+# left join metadata to pcoa positions
+ordination_metadata_seine <- positions %>% 
+  as.data.frame() %>% 
+  rownames_to_column(var = "Sample") %>% 
+  left_join(BB_seine_2019_EWD_metadata, by = "Sample")
+
+#calculate percent explained
+percent_explained = 100 * pcoa$eig / sum(pcoa$eig)
+# round first two values for axis 1 & 2
+perc_exp <- format(round(percent_explained[1:2], digits = 1), nsmall = 1)
+
+# create axis labels for percent explained
+labs <- c(glue("Axis.1 ({perc_exp[1]}%)"),
+          glue("Axis.2 ({perc_exp[2]}%)"))
+
+# plot by longest leaf length
+seine_PCoA_LLLM <- ordination_metadata_seine %>%  
+  ggplot(aes(x=pcoa1, y=pcoa2)) +
+  geom_point(mapping = aes(color = LongestBladeLengthMean, shape = Bay), size = 7, stroke = 2) +
+  scale_color_viridis_c(direction = -1) +
+  scale_shape_manual(values=c(4, 9), guide = "none") +
+  theme_classic() +
+  labs(x=labs[1], y=labs[2]) +
+  labs(shape = "Bay", color = "Longest leaf length mean (mm)") +
+  theme(legend.title = element_text(size=14), legend.text = element_text(size=14), axis.text=element_text(size=14), axis.title = element_text(size = 14) ) +
+  guides(color = guide_legend(override.aes = list(size=4)))
+
+seine_PCoA_LLLM
+ggsave(seine_PCoA_LLLM, file = "output/plots/seine_PCoA_LLLM_bay.png", dpi = 400, device = "png",width = 8, height = 8, units = "in")
+
+# remove non-EWD sites from metadata
+remove <- c("G", "H")
+# 36 seines in metadata
+BB_seine_2019_EWD_metadata <- filter(BB_seine_2019_EWD_metadata, !SiteCode %in% remove) %>% 
+  filter(Sample != "WP_7_19")
+
+# 36 seines
+dist %>% str()
+
+# by margin adonis2
+BB_2019_seine_adonis2_margin <- adonis2(dist ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + Bay, by = "margin", data = BB_seine_2019_EWD_metadata)
+
+BB_2019_seine_adonis2_margin
+write.csv(BB_2019_seine_adonis2_margin, "output/stats/fish_2019_bray_adonis_margin_BB_seine.csv")
+# factors
+fish_factor <- c("Lesion prevalence mean", "Lesion severity mean", "Shoot density mean", "Longest leaf length mean", "Bay", "Residual", "Total")
+adonis_df_BB_seine <- data.frame(BB_2019_seine_adonis2_margin$Df, BB_2019_seine_adonis2_margin$SumOfSqs,
+                        BB_2019_seine_adonis2_margin$R2, BB_2019_seine_adonis2_margin$F,
+                        BB_2019_seine_adonis2_margin$`Pr(>F)`)
+adonis_df_BB_seine$Factor <- fish_factor
+adonis_df_BB_seine <- adonis_df_BB_seine[ , c(6,1,2,3,4,5)]
+adonis_df_BB_seine <- rename(adonis_df_BB_seine, "Pr(>F)" = BB_2019_seine_adonis2_margin..Pr..F.., "F"=BB_2019_seine_adonis2_margin.F, R2 = BB_2019_seine_adonis2_margin.R2, SumOfSqs = BB_2019_seine_adonis2_margin.SumOfSqs, Df = BB_2019_seine_adonis2_margin.Df)
+write.csv(adonis_df_BB_seine, "output/stats/fish_2019_bray_adonis_margin_formatted_BB_seine.csv")
+
+# ggarrange PCoA plots from eDNA and seines
+# extract the legend
+leg <- get_legend(fish_2019_bray_ord_PCoA_LLLM_BB)
+
+BB_PCoA_2019_eDNA_seine <- ggarrange(fish_2019_bray_ord_PCoA_LLLM_BB, seine_PCoA_LLLM,
+                 labels = c("A", "B"), ncol = 1, nrow = 2, align = "hv", heights = c(1,1), legend.grob = leg, legend = "right")
+
+BB_PCoA_2019_eDNA_seine
+ggsave(BB_PCoA_2019_eDNA_seine, file = "output/plots/BB_PCoA_2019_eDNA_seine_bay.png", dpi = 400, device = "png",width = 11, height = 8.5, units = "in")
+
+```
+
+```{r alphadiv models}
+# subset to samples with SST data (72)
+fish_2019_phyloseq_SST <- fish_2019_phyloseq %>% 
+  subset_samples(!is.na(SST))
+
+# calculate alpha diversity metrics, richness & Shannon diversity
+fish_2019_SST_alpha <- estimate_richness(fish_2019_phyloseq_SST, measures = c("Observed", "Shannon"))
+# make sampleid a factor
+fish_2019_SST_alpha$sampleid <- rownames(fish_2019_SST_alpha) %>% as.factor()
+
+# plot histograms
+histogram(fish_2019_SST_alpha$Observed)
+histogram(fish_2019_SST_alpha$Shannon)
+
+# extract metadata as dataframe, make sampleid as factor
+metadata_2019_SST <- data.frame(sample_data(fish_2019_phyloseq_SST))
+metadata_2019_SST$sampleid <- rownames(metadata_2019_SST) %>% as.factor()
+
+# left join metadata with alpha diversity by sampleid
+fish_2019_SST_alpha <- metadata_2019_SST %>% 
+  unclass() %>% 
+  data.frame() %>% 
+  left_join(fish_2019_SST_alpha, by = "sampleid")
+
+# additive model
+plot(fish_2019_SST_alpha$Observed) 
+mean(fish_2019_SST_alpha$Observed) # 14.98
+var(fish_2019_SST_alpha$Observed) # 20
+
+mobservedgamtest <- gam(Observed ~ s(PrevalenceMean) + s(SeverityMean) + s(DensityShootsMean) + s(LongestBladeLengthMean) + s(SST) + Region, family = poisson, method = "REML", data = fish_2019_SST_alpha)
+summary(mobservedgamtest)
+anova(mobservedgamtest)
+plot(mobservedgamtest, residuals = TRUE) # smoother for shootdensity and possibly prevalence
+gam.check(mobservedgamtest)
+
+# final selection
+mobservedgam <- gam(Observed ~ s(PrevalenceMean) + SeverityMean + s(DensityShootsMean) + LongestBladeLengthMean + SST + Region, family = poisson, method = "REML", data = fish_2019_SST_alpha)
+summary(mobservedgam)
+anova(mobservedgam)
+plot(mobservedgam, residuals = TRUE, all.terms = TRUE) # smoother for shootdensity and prevalence (some complexity)
+gam.check(mobservedgam)
+concurvity(mobservedgam, full = FALSE) # useful if > 1 smooth function
+cor.test(y = fish_2019_SST_alpha$Observed, x = fish_2019_SST_alpha$SST) # slope -0.328
+
+anova_richness_p <- as.data.frame(anova(mobservedgam)$pTerms.table)
+anova_richness_s <- as.data.frame(anova(mobservedgam)$s.table)
+write_csv(anova_richness_p, "output/stats/OTU_richness_gam_p_terms.csv")
+write_csv(anova_richness_s, "output/stats/OTU_richness_gam_s_terms.csv")
+
+hist(fish_2019_SST_alpha$Shannon) 
+plot(fish_2019_SST_alpha$Shannon) 
+mean(fish_2019_SST_alpha$Shannon) # 2.16
+var(fish_2019_SST_alpha$Shannon) # 0.139
+dispersion = 1/(var(fish_2019_SST_alpha$Shannon)) # gaussian can be used
+
+# additive model
+mshannongamtest <- gam(Shannon ~ s(PrevalenceMean) + s(SeverityMean) + s(DensityShootsMean) + s(LongestBladeLengthMean) + s(SST) + Region, method = "REML", data = fish_2019_SST_alpha)
+summary(mshannongamtest) # edf ~1 for all but SST; SST non-linear
+anova(mshannongamtest)
+plot(mshannongamtest, residuals = TRUE, all.terms = TRUE, shade = TRUE)
+gam.check(mshannongamtest)
+AIC(mshannongamtest)
+
+mshannongam <- gam(Shannon ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + s(SST) + Region, method = "REML", data = fish_2019_SST_alpha)
+summary(mshannongam)
+anova(mshannongam)
+plot(mshannongam, residuals = TRUE, all.terms = TRUE, se = TRUE)
+gam.check(mshannongam)
+plot(y = fish_2019_SST_alpha$SST, x = fish_2019_SST_alpha$DensityShootsMean)  
+plot(y = fish_2019_SST_alpha$SST, x = fish_2019_SST_alpha$LongestBladeLengthMean) 
+cor.test(y = fish_2019_SST_alpha$Shannon, x = fish_2019_SST_alpha$LongestBladeLengthMean) # slope 0.204
+
+anova_shannon_p <- as.data.frame(anova(mshannongam)$pTerms.table)
+anova_shannon_s <- as.data.frame(anova(mshannongam)$s.table)
+write_csv(anova_shannon_p, "output/stats/OTU_shannon_gam_p_terms.csv")
+write_csv(anova_shannon_s, "output/stats/OTU_shannon_gam_s_terms.csv")
+
+```
+
+```{r alphadiv plots}
+# subset to samples with SST data (72)
+fish_2019_phyloseq_SST <- fish_2019_phyloseq %>% 
+  subset_samples(!is.na(SST))
+
+# calculate alpha diversity metrics, richness & Shannon diversity
+fish_2019_SST_alpha <- estimate_richness(fish_2019_phyloseq_SST, measures = c("Observed", "Shannon"))
+# make sampleid a factor
+fish_2019_SST_alpha$sampleid <- rownames(fish_2019_SST_alpha) %>% as.factor()
+
+# extract metadata as dataframe, make sampleid as factor
+metadata_2019_SST <- data.frame(sample_data(fish_2019_phyloseq_SST))
+metadata_2019_SST$sampleid <- rownames(metadata_2019_SST) %>% as.factor()
+
+# left join metadata with alpha diversity by sampleid
+fish_2019_SST_alpha <- metadata_2019_SST %>% 
+  unclass() %>% 
+  data.frame() %>% 
+  left_join(fish_2019_SST_alpha, by = "sampleid")
+
+gr = c("#414451")
+
+Richness_SST <- ggplot(fish_2019_SST_alpha, aes(x = SST, y = Observed)) + 
+  geom_jitter(color = gr, size = 5, width = 0.1, aes(shape = Region), alpha = 0.8) +
+  geom_smooth(method='lm', color = "gray28", se = TRUE) +
+  scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+  theme_classic() +
+  ylab("Richness") +
+  xlab("SST ºC") + 
+  theme(text = element_text(size=16)) 
+Richness_SST
+ggsave(Richness_SST, file = "output/plots/Richness_SST.png", dpi = 400, device = "png",width = 8, height = 8, units = "in")
+  
+Shannon_LLLM <- ggplot(fish_2019_SST_alpha, aes(x = LongestBladeLengthMean, y = Shannon)) + 
+  geom_jitter(color = gr, size = 5, width = 0.1, aes(shape = Region), alpha = 0.8) +
+  geom_smooth(method='lm', color = "gray28", se = TRUE) +
+  theme_classic() +
+  scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+  ylab("Shannon Diversity") +
+  xlab("Longest leaf length mean (mm)") + 
+  theme(text = element_text(size=16)) 
+Shannon_LLLM
+ggsave(Shannon_LLLM, file = "output/plots/Shannon_LLLM.png", dpi = 400, device = "png",width = 8, height = 8, units = "in")
+ 
+leg <- get_legend(Richness_SST)
+diversity_fig <- ggarrange(Richness_SST, Shannon_LLLM, legend.grob = leg, legend = "right",
+                 labels = c("A", "B"), ncol = 1, nrow = 2, align = "hv", heights = c(1,1))
+
+ggsave(diversity_fig, file = "output/plots/diversity_fig.png", dpi = 400, device = "png",width = 8, height = 8, units = "in")
+ 
+``` 
+
+``` {r barplot eDNA 2019}
+# species bar plots
+fish_2019_phyloseq_species <- tax_glom(fish_2019_phyloseq, taxrank = "Species_percent_sim", NArm = FALSE)
+fish_2019_phyloseq_species
+
+df <- psmelt(fish_2019_phyloseq_species)
+length(unique(df$Species_percent_sim)) # 106 taxa
+
+# subset dataframe by columns of interest
+fish_2019_phyloseq_species_df <- subset(df, select = c(Abundance, Species, Species_percent_sim, Region))
+
+# obtain unique list of Region
+region_unique <- unique(fish_2019_phyloseq_species_df$Region)
+
+# create list
+region_table <- list()
+
+# calculate relative abundances per region
+for(i in seq_along(region_unique)) {
+  this_subset=subset(fish_2019_phyloseq_species_df, Region == region_unique[i])
+  temp = this_subset %>% group_by(Species_percent_sim) %>% summarise_each(funs(sum (Abundance)))
+  temp$Region = region_unique[i]
+  temp$N =  sum(temp$Abundance) 
+  temp$RelAbund <- ( (temp$Abundance / temp$N) * 100 )
+  temp$SumRelAbund <- sum(temp$RelAbund) 
+  region_table[[i]] <- temp
+  
+  print(temp)
+}
+
+# bind items in region_table list with rbind/bind_rows
+region_table <- bind_rows(region_table)
+
+# create column of top twenty most abundant taxa across all regions
+#subset to taxa and relative abundance column 
+region_table_subset <-  subset(region_table, select = c(Species_percent_sim, RelAbund))
+
+# group by taxa and calculate mean relative abundances across all regions
+RegionalMeanRelAbundSpecies <- region_table_subset %>%
+  group_by(Species_percent_sim) %>%
+  summarise_each(funs(mean (RelAbund)))
+
+# sort by decreasing mean relative abundance 
+RegionalMeanRelAbundSpecies <- RegionalMeanRelAbundSpecies[order(RegionalMeanRelAbundSpecies$RelAbund, decreasing = TRUE), ]
+# subset by the first 20 rows (~ top twenty most abundant taxa)
+top_twenty <- RegionalMeanRelAbundSpecies[1:20, ]
+
+# vector of top twenty taxa names
+top_twenty_names <- top_twenty$Species_percent_sim
+
+# create new column of top twenty most abundant taxa in region_table dataframe
+region_table$Species20 <- NA
+
+# fill column with top 20 names with ifelse statement
+region_table$Species20 <- ifelse(region_table$Species_percent_sim %in% top_twenty_names, region_table$Species_percent_sim, NA)
+
+color = c("#849db1", "#d898ba", "#51b364", "#ffc156", "#ffdd71", "#006ba4", "#a2c8ec", "#ea6b73", "#e9c39b", "#1ba3c6", "#2cb5c0", "#30bcad", "#bd0a36", 
+          "#e39802", "#7b66d2", "#a699e8", "#bfbb60", "#ac8763", "#c7519c", "#b66353")
+show_col(color)
+
+barplot_2019_region <- region_table %>%
+  arrange(RelAbund) %>%
+  mutate(Species20 = factor(Species20, levels=c("Actinopteri   0.80", "Atherinops affinis   0.99", "Clupea harengus   0.99", "Leptocottus armatus   0.99", "Myoxocephalus   0.99", "Embiotocidae   0.90",  "Embiotocidae   0.95", "Engraulis mordax   0.99", "Gasterosteus aculeatus   0.99", "Acanthogobius flavimanus   0.99", "Gymnogobius macrognathos   0.90", "Gobiidae   0.90", "Hexagrammos decagrammus   0.99", "Mugil cephalus   0.97", "Pholis   0.99", "Pholis ornata   0.99", "Pleuronectidae   0.99", "Sebastes   0.99", "Stichaeidae   0.97", "Syngnathus   0.99"))) %>%   
+  ggplot(aes(x = Region, y = RelAbund, fill = Species20)) + 
+  geom_bar(stat="identity") +
+  scale_fill_manual(values = color) +
+  theme_classic() +
+  theme(legend.title = element_text(size=14), legend.text = element_text(size=14), axis.text=element_text(size=16), axis.title = element_text(size = 18)) +
+  ylab("Relative abundance %") +
+  xlab("Region") +
+  guides(fill=guide_legend(""))
+                              
+barplot_2019_region
+
+ggsave(barplot_2019_region, file = "output/plots/barplot_2019_region.png", dpi = 400, device = "png",
+       width = 11, height = 8.5, units = "in")
+
+```
+
+``` {r random forest analysis LLLM}
+df_fish_2019 <- psmelt(fish_2019_phyloseq)
+
+# subset dataframe by columns of interest
+df_fish_2019_LLLM <- subset(df_fish_2019, select = c(Abundance, Species_percent_sim, LongestBladeLengthMean, SiteName, Region))
+
+# obtain unique list of SiteNames
+SiteName_unique <- unique(df_fish_2019_LLLM$SiteName)
+
+# create list
+site_table <- list()
+
+# calculate relative abundances of unique taxonomic labels per site
+for(i in seq_along(SiteName_unique)) {
+  this_subset=subset(df_fish_2019_LLLM, SiteName == SiteName_unique[i])
+  temp = this_subset %>% group_by(Species_percent_sim) %>% summarise(Abundance_per_site = sum(Abundance))
+  temp$SiteName = SiteName_unique[i]
+  temp$N = sum(temp$Abundance_per_site) # total number of sequences per site
+  temp$RelAbund <- ( (temp$Abundance_per_site / temp$N) * 100 )
+  temp$SumRelAbund <- sum(temp$RelAbund) 
+  site_table[[i]] <- temp
+  
+  print(temp)
+}
+
+# bind items in list with bind_rows
+site_table <- bind_rows(site_table)
+length(unique(site_table$Species_percent_sim)) # 106 taxa
+# subset to columns of interest
+site_RelAbund <- site_table %>% select(SiteName, Species_percent_sim, RelAbund) 
+# distinct metadata
+site_LLLM <- df_fish_2019 %>% select(SiteName, LongestBladeLengthMean, Region) %>% distinct()
+
+# left join with relative abundance df
+site_RelAbund_LLLM <- left_join(site_RelAbund, site_LLLM, by = "SiteName") %>% select(-SiteName)
+
+# pivot wider and clean names for Randomforest
+site_RelAbund_LLLM_wide <- site_RelAbund_LLLM %>% 
+  pivot_wider(names_from = Species_percent_sim, values_from = RelAbund) %>% 
+  janitor::clean_names()
+
+str(site_RelAbund_LLLM_wide) # 31 levels (sites) of response variable LLLM x 106 predictor variables taxonomic labels
+
+train_LLLM_region = subset(site_RelAbund_LLLM_wide, site_RelAbund_LLLM_wide$region != "BB")
+write.csv(train_LLLM_region, "output/stats/Random_forest_train_LLLM_region.csv", row.names = FALSE)
+
+test_LLLM_region  = subset(site_RelAbund_LLLM_wide, site_RelAbund_LLLM_wide$region == "BB")
+write.csv(test_LLLM_region, "output/stats/Random_forest_test_LLLM_region.csv", row.names = FALSE)
+
+dim(train_LLLM_region) # 25/31 81%
+dim(test_LLLM_region) # 6/31 19%
+
+# import the top important taxa from cast target-oriented cv with leave location out cv 
+top_taxa_LLM_CAST <- read.csv("output/stats/Random_forest_LLLM_top_10_importance_cast.csv", header = TRUE)
+top_taxa_LLM_CAST_species <- top_taxa_LLM_CAST$Species_percent_sim
+
+site_RelAbund_LLLM_wide_reduced <- site_RelAbund_LLLM_wide %>% select(-region)
+
+# pivot longer and filter by top ranked taxa from random forest
+fish_2019_LLLM_random_forest_top_taxa <- site_RelAbund_LLLM_wide_reduced %>%  
+  pivot_longer(!longest_blade_length_mean, names_to = "Species_percent_sim", values_to = "Abundance_spp_sim") %>%
+  filter(Species_percent_sim %in% top_taxa_LLM_CAST_species)
+
+gr = c("#414451")
+
+# subset metadata df to distinct LLLM, site name, region; rename factors to match 
+site_region <- df_fish_2019 %>% select(SiteName, LongestBladeLengthMean, DensityShootsMean, Region) %>% distinct() %>% 
+  rename(longest_blade_length_mean = LongestBladeLengthMean) 
+
+# join metadata
+fish_2019_LLLM_random_forest_top_taxa_all <- left_join(fish_2019_LLLM_random_forest_top_taxa, site_region) %>% 
+  select(Species_percent_sim, longest_blade_length_mean, DensityShootsMean, Abundance_spp_sim, Region)
+
+fish_2019_LLLM_random_forest_top_taxa_all <- fish_2019_LLLM_random_forest_top_taxa_all %>% mutate(Species_percent_sim = recode(Species_percent_sim, "actinopteri_0_80" = "Actinopteri 0.80", 
+                                 "atherinops_affinis_0_99" = "Atherinops affinis 0.99",
+                                "embiotocidae_0_95" = "Embiotocidae 0.95",
+                                 "embiotocidae_0_97" = "Embiotocidae 0.97",
+                                "leptocottus_armatus_0_99" = "Leptocottus armatus 0.99",
+                                "pholis_0_99" = "Pholis 0.99",
+                                "pholis_ornata_0_99" = "Pholis ornata 0.99",
+                                "syngnathus_0_99" = "Syngnathus 0.99",
+                                "clupea_pallasii_0_99" = "clupea pallasii 0.99",
+                                "engraulis_mordax_0_99" = "Engraulis mordax 0.99"
+                                ))
+
+# plot all top 10 taxa with region as shape
+LLLM_RF_plot_region_shape_all_top_10 <- fish_2019_LLLM_random_forest_top_taxa_all %>% 
+    ggplot(aes(x = longest_blade_length_mean, y = Abundance_spp_sim)) + 
+    geom_point(color = gr, alpha = 0.5, size = 6, aes(shape = Region)) +
+    geom_smooth(formula = y ~ x, method = "lm", color = gr) +
+    scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+    theme_classic() +
+    theme(axis.text=element_text(size=19), axis.title = element_text(size = 19), strip.text.x = element_text(size = 17), legend.title = element_text(size=19), legend.text = element_text(size=19)) +
+    ylab("Relative abundance (%) per site") +
+    xlab("Longest leaf length mean per site (mm)") +
+    facet_wrap(vars(Species_percent_sim), scales = "free_y")
+LLLM_RF_plot_region_shape_all_top_10
+
+predict_LLLM_BB <- read.csv("output/stats/Random_forest_test_LLLM_region_plus_CAST_rf_prediction.csv")
+predict_BB_LLLM_plot <- predict_LLLM_BB %>% 
+    ggplot(aes(x = pred_LLLM_Region, y = longest_blade_length_mean)) + 
+    geom_point(color = gr, alpha = 0.5, size = 6) +
+    geom_smooth(formula = y ~ x, method = "lm", color = gr) +
+    theme_classic() +
+    theme(axis.text=element_text(size=19), axis.title = element_text(size = 19), strip.text.x = element_text(size = 17), legend.title = element_text(size=19), legend.text = element_text(size=19)) +
+    ylab("Predicted longest leaf length mean per site (mm)") +
+    xlab("Longest leaf length mean per site (mm)") 
+
+ggsave(predict_BB_LLLM_plot, file = "output/plots/LLLM_RF_leave_region_BB_out_predict_CAST.png", dpi = 400, device = "png", width = 12, height = 8, units = "in")
+
+# subset by top taxa from CAST random forest and test with LME model
+# obtain unique list of top ranked taxa
+LLLM_unique_top_taxa <- unique(fish_2019_LLLM_random_forest_top_taxa_all$Species_percent_sim)
+
+# initialize empty list
+subset_table_LLLM_top_taxa <- list()
+
+for(i in seq_along(LLLM_unique_top_taxa)) {
+  data_subset=subset(fish_2019_LLLM_random_forest_top_taxa_all, Species_percent_sim == LLLM_unique_top_taxa[i])
+  subset_table_LLLM_top_taxa[[i]] <- data_subset
+}
+
+actinopteri_80 <- subset_table_LLLM_top_taxa[[1]]
+atherinops_affinis_99 <- subset_table_LLLM_top_taxa[[2]]
+clupea_pallasii_99 <- subset_table_LLLM_top_taxa[[3]]
+embiotocidae_0_95 <- subset_table_LLLM_top_taxa[[4]]
+embiotocidae_0_97 <- subset_table_LLLM_top_taxa[[5]]
+engraulis_mordax_0_99 <- subset_table_LLLM_top_taxa[[6]]
+leptocottus_armatus_0_99 <- subset_table_LLLM_top_taxa[[7]]
+pholis_0_99 <- subset_table_LLLM_top_taxa[[8]]
+pholis_ornata_0_99 <- subset_table_LLLM_top_taxa[[9]]
+syngnathus_0_99 <- subset_table_LLLM_top_taxa[[10]]
+
+# random intercept for region
+# Actinopteri
+actinopteri_80_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = actinopteri_80)
+summary(actinopteri_80_lme)
+
+# pholis ornata
+pholis_ornata_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = pholis_ornata_0_99)
+summary(pholis_ornata_0_99_lme)
+
+# syngnathus_0_99
+syngnathus_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = syngnathus_0_99)
+syngnathus_0_99_lme_summary <- summary(syngnathus_0_99_lme)
+capture.output(syngnathus_0_99_lme_summary, file = "output/stats/syngnathus_0_99_lme_summary_LLLM.txt")
+
+# create the prediction data frame
+pred_overall <- ggpredict(syngnathus_0_99_lme, terms = c("longest_blade_length_mean"))  # this gives overall predictions for the model
+
+# plot the overall predictions 
+syngnathus_99_plot_overall <- ggplot(pred_overall) + 
+   geom_line(aes(x = x, y = predicted)) +          
+   geom_ribbon(aes(x = x, ymin = predicted - std.error, ymax = predicted + std.error), 
+               fill = "gray28", alpha = 0.5) +  
+   geom_point(data = syngnathus_0_99,
+              aes(x = longest_blade_length_mean, y = Abundance_spp_sim, shape = 
+                    Region), alpha = 0.5, size = 6, color = gr) + 
+   scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+   theme_classic() +
+   theme(text = element_text(size=16), plot.title = element_text(size = 16, hjust = 0.5)) +
+   labs(x = "Longest leaf length mean (mm)", y = "", title = "Syngnathus 0.99")  
+
+syngnathus_99_plot_overall
+ggsave(syngnathus_99_plot_overall, file = "output/plots/syngnathus_99_plot_overall_prediction_LLLM.png", dpi = 400, device = "png", width = 12, height = 8, units = "in")
+
+# plot relationship with shoot density and test with cor.test
+plot(syngnathus_0_99$DensityShootsMean, syngnathus_0_99$Abundance_spp_sim)
+syngnathus_0_99_rel_abund_cortest_density <- cor.test(syngnathus_0_99$DensityShootsMean, syngnathus_0_99$Abundance_spp_sim)
+capture.output(syngnathus_0_99_rel_abund_cortest_density, file = "output/stats/syngnathus_0_99_rel_abund_cortest_density.txt")
+
+syngnathus_99_plot_shoot_density <- ggplot(syngnathus_0_99, aes(x = DensityShootsMean, y = Abundance_spp_sim)) + 
+   geom_point(aes(shape = Region), alpha = 0.5, size = 6, color = gr) + 
+   geom_smooth(data = syngnathus_0_99, formula = y ~ x, method = "lm", color = gr) + 
+   scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+   theme_classic() +
+   theme(text = element_text(size=16), plot.title = element_text(size = 16, hjust = 0.5)) +
+   labs(x = "Shoot density per m^2", y = "", title = "Syngnathus 0.99")  
+
+syngnathus_99_plot_shoot_density
+
+#atherinops_affinis_0_99
+# random intercept for region
+atherinops_affinis_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = atherinops_affinis_99)
+summary(atherinops_affinis_0_99_lme)
+atherinops_affinis_0_99_lme_summary <- summary(atherinops_affinis_0_99_lme)
+capture.output(atherinops_affinis_0_99_lme_summary, file = "output/stats/atherinops_affinis_0_99_lme_summary_LLLM.txt")
+
+# create the prediction data frame
+pred_overall <- ggpredict(atherinops_affinis_0_99_lme, terms = c("longest_blade_length_mean"))  # this gives overall predictions for the model
+
+# plot the overall predictions 
+atherinops_affinis_0_99_plot_overall_no_legend <- ggplot(pred_overall) + 
+   geom_line(aes(x = x, y = predicted)) +          
+   geom_ribbon(aes(x = x, ymin = predicted - std.error, ymax = predicted + std.error), 
+               fill = "gray28", alpha = 0.5) +
+   geom_point(data = atherinops_affinis_99,
+              aes(x = longest_blade_length_mean, y = Abundance_spp_sim, shape = 
+                    Region), alpha = 0.5, size = 6, color = gr) + 
+   scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+   theme_classic() +
+   theme(text = element_text(size=16), plot.title = element_text(size = 16, hjust = 0.5), legend.position = "none") +
+   labs(x = "", y = "Relative abundance (%)", title = "Atherinops affinis 0.99")  
+
+atherinops_affinis_0_99_plot_overall_no_legend
+ggsave(atherinops_affinis_0_99_plot_overall_no_legend, file = "output/plots/atherinops_affinis_0_99_plot_overall_prediction_LLLM_no_legend.png", dpi = 400, device = "png", width = 12, height = 8, units = "in")
+
+# check relationship with shoot density 
+atherinops_affinis_99_rel_abund_cortest_density <- cor.test(atherinops_affinis_99$DensityShootsMean, atherinops_affinis_99$Abundance_spp_sim)
+capture.output(atherinops_affinis_99_rel_abund_cortest_density, file = "output/stats/atherinops_affinis_99_rel_abund_cortest_density.txt")
+
+# clupea pallasii
+clupea_pallasii_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = clupea_pallasii_99)
+summary(clupea_pallasii_0_99_lme)
+
+# embiotocidae 95
+embiotocidae_0_95_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = embiotocidae_0_95)
+summary(embiotocidae_0_95_lme) 
+embiotocidae_0_95_lme_summary <- summary(embiotocidae_0_95_lme)
+capture.output(embiotocidae_0_95_lme_summary, file = "output/stats/embiotocidae_0_95_lme_summary_LLLM.txt")
+
+# create the prediction data frame
+pred_overall <- ggpredict(embiotocidae_0_95_lme, terms = c("longest_blade_length_mean"))  # this gives overall predictions for the model
+
+# plot the overall predictions 
+embiotocidae_0_95_plot_overall_no_legend <- ggplot(pred_overall) + 
+   geom_line(aes(x = x, y = predicted)) +         
+   geom_ribbon(aes(x = x, ymin = predicted - std.error, ymax = predicted + std.error), 
+               fill = "gray28", alpha = 0.5) +
+   geom_point(data = embiotocidae_0_95,
+              aes(x = longest_blade_length_mean, y = Abundance_spp_sim, shape = 
+                    Region), alpha = 0.5, size = 6, color = gr) + 
+   scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+   theme_classic() +
+   theme(text = element_text(size=16), plot.title = element_text(size = 16, hjust = 0.5), legend.position = "none") +
+   labs(x = "", y = "", title = "Embiotocidae 0.95")  
+
+embiotocidae_0_95_plot_overall_no_legend
+ggsave(embiotocidae_0_95_plot_overall_no_legend, file = "output/plots/embiotocidae_0_95_plot_overall_prediction_LLLM_no_legend.png", dpi = 400, device = "png", width = 12, height = 8, units = "in")
+
+# check relationship with shoot density 
+embiotocidae_0_95_rel_abund_cortest_density <- cor.test(embiotocidae_0_95$DensityShootsMean, embiotocidae_0_95$Abundance_spp_sim)
+capture.output(embiotocidae_0_95_rel_abund_cortest_density, file = "output/stats/embiotocidae_0_95_rel_abund_cortest_density")
+
+# embiotocidae_0_97
+embiotocidae_0_97_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = embiotocidae_0_97)
+embiotocidae_0_97_lme_summary <- summary(embiotocidae_0_97_lme)
+capture.output(embiotocidae_0_97_lme_summary, file = "output/stats/embiotocidae_0_97_lme_summary_LLLM.txt")
+
+# create the prediction data frame
+pred_overall <- ggpredict(embiotocidae_0_97_lme, terms = c("longest_blade_length_mean"))  # this gives overall predictions for the model
+
+# plot the overall predictions 
+embiotocidae_0_97_plot_overall_no_legend <- ggplot(pred_overall) + 
+   geom_line(aes(x = x, y = predicted)) +          
+   geom_ribbon(aes(x = x, ymin = predicted - std.error, ymax = predicted + std.error), 
+               fill = "gray28", alpha = 0.5) +  
+   geom_point(data = embiotocidae_0_97,
+              aes(x = longest_blade_length_mean, y = Abundance_spp_sim, shape = 
+                    Region), alpha = 0.5, size = 6, color = gr) + 
+   scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+   theme_classic() +
+   theme(text = element_text(size=16), plot.title = element_text(size = 16, hjust = 0.5), legend.position = "none") +
+   labs(x = "Longest leaf length mean (mm)", y = "", title = "Embiotocidae 0.97")  
+
+embiotocidae_0_97_plot_overall_no_legend
+ggsave(embiotocidae_0_97_plot_overall_no_legend, file = "output/plots/embiotocidae_0_97_plot_overall_prediction_LLLM_no_legend.png", dpi = 400, device = "png", width = 12, height = 8, units = "in")
+
+# check relationship with shoot density 
+embiotocidae_0_97_rel_abund_cortest_density <- cor.test(embiotocidae_0_97$DensityShootsMean, embiotocidae_0_97$Abundance_spp_sim)
+capture.output(embiotocidae_0_97_rel_abund_cortest_density, file = "output/stats/embiotocidae_0_97_rel_abund_cortest_density.txt")
+
+# engraulis_mordax_0_99
+engraulis_mordax_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = engraulis_mordax_0_99)
+summary(engraulis_mordax_0_99_lme) 
+
+# leptocottus_armatus_0_99
+leptocottus_armatus_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = leptocottus_armatus_0_99)
+leptocottus_armatus_0_99_lme_summary <- summary(leptocottus_armatus_0_99_lme)
+capture.output(leptocottus_armatus_0_99_lme_summary, file = "output/stats/leptocottus_armatus_0_99_lme_summary_LLLM.txt")
+
+# create the prediction data frame
+pred_overall <- ggpredict(leptocottus_armatus_0_99_lme, terms = c("longest_blade_length_mean"))  # this gives overall predictions for the model
+
+# plot the overall predictions 
+leptocottus_armatus_0_99_plot_overall_no_legend <- ggplot(pred_overall) + 
+   geom_line(aes(x = x, y = predicted)) +         
+   geom_ribbon(aes(x = x, ymin = predicted - std.error, ymax = predicted + std.error), 
+               fill = "gray28", alpha = 0.5) +
+   geom_point(data = leptocottus_armatus_0_99,
+              aes(x = longest_blade_length_mean, y = Abundance_spp_sim, shape = 
+                    Region), alpha = 0.5, size = 6, color = gr) + 
+   scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+   theme_classic() +
+   theme(text = element_text(size=16), plot.title = element_text(size = 16, hjust = 0.5), legend.position = "none") +
+   labs(x = "Longest leaf length mean (mm)", y = "Relative abundance (%)", title = "Leptocottus armatus 0.99")  
+
+leptocottus_armatus_0_99_plot_overall_no_legend
+ggsave(leptocottus_armatus_0_99_plot_overall_no_legend, file = "output/plots/leptocottus_armatus_0_99_plot_overall_prediction_LLLM_no_legend.png", dpi = 400, device = "png", width = 12, height = 8, units = "in")
+
+# check relationship with shoot density 
+leptocottus_armatus_0_99_rel_abund_cortest_density <- cor.test(leptocottus_armatus_0_99$DensityShootsMean, leptocottus_armatus_0_99$Abundance_spp_sim)
+capture.output(leptocottus_armatus_0_99_rel_abund_cortest_density, file = "output/stats/leptocottus_armatus_0_99_rel_abund_cortest_density.txt")
+
+# pholis 99
+pholis_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = pholis_0_99) 
+summary(pholis_0_99_lme) 
+
+leg <- get_legend(syngnathus_99_plot_overall)
+lllm_rf_overall_plot <- ggarrange(atherinops_affinis_0_99_plot_overall_no_legend, embiotocidae_0_95_plot_overall_no_legend, embiotocidae_0_97_plot_overall_no_legend, leptocottus_armatus_0_99_plot_overall_no_legend, syngnathus_99_plot_overall, legend.grob = leg, legend = "right", labels = c("A", "B", "C", "D", "E"), ncol = 3, nrow = 2, align = "hv", heights = c(1,1))
+
+ggsave(lllm_rf_overall_plot, file = "output/plots/lllm_rf_overall_prediction_per_species_plot_CAST_LME.png", dpi = 400, device = "png", width = 12, height = 8, units = "in")
+
+```
+
+```{r random forest region}
+df_fish_2019 <- psmelt(fish_2019_phyloseq)
+
+# subset dataframe by columns of interest
+df_fish_2019_sub <- subset(df_fish_2019, select = c(Abundance, Species_percent_sim, SiteName, Region, SiteLatitude, LongestBladeLengthMean))
+
+# obtain unique list of SiteNames
+SiteName_unique <- unique(df_fish_2019_sub$SiteName)
+
+# create list
+site_table <- list()
+
+# calculate relative abundances of unique taxonomic labels per site
+for(i in seq_along(SiteName_unique)) {
+  this_subset=subset(df_fish_2019_sub, SiteName == SiteName_unique[i])
+  temp = this_subset %>% group_by(Species_percent_sim) %>% summarise(Abundance_per_site = sum(Abundance))
+  temp$SiteName = SiteName_unique[i]
+  temp$N =  sum(temp$Abundance_per_site) 
+  temp$RelAbund <- ( (temp$Abundance_per_site / temp$N) * 100 )
+  temp$SumRelAbund <- sum(temp$RelAbund) 
+  site_table[[i]] <- temp
+  
+  print(temp)
+}
+
+# bind items in list with bind_rows
+site_table <- bind_rows(site_table)
+length(unique(site_table$Species_percent_sim)) # 106 taxa
+# subset to columns of interest
+site_RelAbund <- site_table %>% select(SiteName, Species_percent_sim, RelAbund) 
+
+# subset metadata df to distinct Region and site name
+site_Region <- df_fish_2019_sub %>% select(SiteName, Region, LongestBladeLengthMean) %>% distinct() %>% rename(site_name = SiteName)
+
+# pivot wider and clean names for Randomforest
+site_RelAbund_Region_wide <- site_RelAbund %>% 
+  pivot_wider(names_from = Species_percent_sim, values_from = RelAbund) %>% 
+  janitor::clean_names()
+
+site_RelAbund_Region_wide <- left_join(site_RelAbund_Region_wide, site_Region, by = "site_name")
+str(site_RelAbund_Region_wide) # 31 sites x 106 predictor variables taxonomic labels
+
+gr = c("#414451")
+
+# split into training and testing set
+set.seed(10)
+sample_region = sample.split(site_RelAbund_Region_wide$Region, SplitRatio = .83) 
+
+train_region = subset(site_RelAbund_Region_wide, sample_region == TRUE) 
+test_region  = subset(site_RelAbund_Region_wide, sample_region == FALSE) 
+dim(train_region) # 25/31; 81%
+dim(test_region) # 6/31; 19%
+
+# fit model 
+train_region_red <- train_region %>%  select(-site_name, -LongestBladeLengthMean)
+train_region_red$Region <- factor(train_region_red$Region)
+
+t <- tuneRF(train_region_red[1:106], train_region_red$Region,
+       stepFactor = .4,
+       plot = TRUE,
+       ntreeTry = 100,
+       trace = TRUE,
+       improve = 0.01)
+# mtry of 25 
+rf_region_mtry_25 <- randomForest(Region~., data=train_region_red, proximity=TRUE, importance = TRUE, mtry=25) # error rate is 24%; so model accuracy is 76%
+
+# cross-validation by sequentially reducing the number of predictors (ranked by variable importance); this is useful to remove unimportant variables prior to building the final model for prediction
+rfcv_result = rfcv(trainx = train_region_red[1:106], trainy = train_region_red$Region, cv.fold = 5, scale = "log", step=0.5, predacc = "ALL")
+with(rfcv_result, plot(n.var, error.cv, log="x", type = "o", lwd=2)) 
+
+set.seed(10)
+rf_region <- randomForest(Region~., data=train_region_red, proximity=TRUE, importance = TRUE, mtry=25) # the OOB estimate of error rate is 28%; so model accuracy is 72%
+rf_region_confusion = rf_region$confusion
+
+region_pred <- predict(rf_region, test_region)
+confusionMatrix(region_pred, test_region$Region) # 83% accuracy on test data p<0.001
+
+varImpPlot(rf_region, sort = T,n.var = 10,main = "Top 10 - Variable Importance")
+
+Imp_rf_region <- as.data.frame(importance(rf_region))
+Imp_rf_region$Species_percent_sim <- row.names(Imp_rf_region)
+
+# sort by MeanDecreaseAccuracy value
+Imp_rf_region_MeanDecreaseAccuracy <- Imp_rf_region[order(Imp_rf_region$MeanDecreaseAccuracy, decreasing = TRUE), ]
+# subset by 10 most important by MeanDecreaseAccuracy
+Imp_rf_region_MeanDecreaseAccuracy_10 <- Imp_rf_region_MeanDecreaseAccuracy[1:10, ]
+# vector of names
+MDA_10 <- Imp_rf_region_MeanDecreaseAccuracy_10$Species_percent_sim
+
+# sort by MeanDecreaseGini purity value
+Imp_rf_region_MeanDecreaseGini <- Imp_rf_region[order(Imp_rf_region$MeanDecreaseGini, decreasing = TRUE), ]
+# subset by 10 most important by MeanDecreaseGini
+Imp_rf_region_MeanDecreaseGini_10 <- Imp_rf_region_MeanDecreaseGini[1:10, ]
+# vector of names
+MDG_10 <- Imp_rf_region_MeanDecreaseGini_10$Species_percent_sim
+
+# remove redundant taxa, adding only new taxa of importance via MDG
+Imp_rf_region_MeanDecreaseGini_10_filtered <- Imp_rf_region_MeanDecreaseGini_10 %>% filter(!Species_percent_sim %in% MDA_10) 
+Region_importance <- rbind(Imp_rf_region_MeanDecreaseAccuracy_10,Imp_rf_region_MeanDecreaseGini_10_filtered)
+# round MDA to two decimals
+Region_importance$MeanDecreaseAccuracy <- round(Region_importance$MeanDecreaseAccuracy, digits = 2)
+# round MDG to two decimals
+Region_importance$MeanDecreaseGini <- round(Region_importance$MeanDecreaseGini, digits = 2)
+# rename levels
+Region_importance <- Region_importance %>% mutate(Species_percent_sim = recode(Species_percent_sim, 
+                                "actinopteri_0_80" = "Actinopteri 0.80", 
+                                "atherinops_affinis_0_99" = "Atherinops affinis 0.99",
+                                "embiotocidae_0_90" = "Embiotocidae 0.90",
+                                "leptocottus_armatus_0_99" = "Leptocottus armatus 0.99",
+                                "pholis_0_99" = "Pholis 0.99",
+                                "pholis_ornata_0_99" = "Pholis ornata 0.99",
+                                "clupea_harengus_0_99" = "Clupea harengus 0.99",
+                                "gasterosteus_aculeatus_0_99" = "Gasterosteus aculeatus 0.99",
+                                "gymnogobius_macrognathos_0_90" = "Gymnogobius macrognathos 0.90",
+                                "anisotremus_scapularis_0_97" = "Anisotremus scapularis 0.97",
+                                "ammodytes_0_99" = "Ammodytes 0.99",
+                                "atherinopsis_californiensis_0_99" = "Atherinopsis californiensis 0.99"
+                                ))
+write_csv(Region_importance, "output/stats/Random_forest_region_importance_scores.csv")
+
+# combine the top 10 from each metric
+top_10_comb <- c(MDA_10, MDG_10) %>% unique()
+
+site_RelAbund_Region_wide_reduced <- site_RelAbund_Region_wide %>% select(-Region, -LongestBladeLengthMean)
+fish_2019_Region_random_forest_top_taxa <- site_RelAbund_Region_wide_reduced %>%
+  pivot_longer(!site_name, names_to = "Species_percent_sim", values_to = "Abundance_spp_sim") %>%
+  filter(Species_percent_sim %in% c(top_10_comb)) %>% 
+  left_join(site_Region, by = "site_name")
+
+# obtain unique list of top ranked taxa
+Region_unique_taxa <- unique(fish_2019_Region_random_forest_top_taxa$Species_percent_sim)
+
+# create list
+stats_table_Region <- list()
+
+for(i in seq_along(Region_unique_taxa)) {
+  this_subset=subset(fish_2019_Region_random_forest_top_taxa, Species_percent_sim == Region_unique_taxa[i])
+  this_taxa <- Region_unique_taxa[i]
+  region_summary <- summary(aovp(Abundance_spp_sim ~ Region, data = this_subset, perm = "Exact"))
+  capture.output(region_summary, file = paste0(this_taxa, "_region_aovp.txt"))
+  print(region_summary)
+  pair_test <- pairwise.t.test(this_subset$Abundance_spp_sim, this_subset$Region, p.adj='bonferroni')
+  capture.output(pair_test, file = paste0(this_taxa, "_region_aovp_bonferroni.txt"))
+  print(region_summary)
+}
+
+fish_2019_Region_random_forest_top_taxa <- fish_2019_Region_random_forest_top_taxa %>% mutate(Species_percent_sim = recode(Species_percent_sim, "actinopteri_0_80" = "Actinopteri 0.80", 
+                                 "atherinops_affinis_0_99" = "Atherinops affinis 0.99",
+                                "embiotocidae_0_90" = "Embiotocidae 0.90",
+                                "leptocottus_armatus_0_99" = "Leptocottus armatus 0.99",
+                                "pholis_0_99" = "Pholis 0.99",
+                                "pholis_ornata_0_99" = "Pholis ornata 0.99",
+                                "clupea_harengus_0_99" = "Clupea harengus 0.99",
+                                "gasterosteus_aculeatus_0_99" = "Gasterosteus aculeatus 0.99",
+                                "gymnogobius_macrognathos_0_90" = "Gymnogobius macrognathos 0.90",
+                                "anisotremus_scapularis_0_97" = "Anisotremus scapularis 0.97",
+                                "ammodytes_0_99" = "Ammodytes 0.99",
+                                "atherinopsis_californiensis_0_99" = "Atherinopsis californiensis 0.99"
+                                ))
+gr = c("#414451")
+# plot with region as shape
+region_RF_plot <- fish_2019_Region_random_forest_top_taxa %>% 
+    ggplot(aes(x = Region, y = Abundance_spp_sim)) + 
+    geom_boxplot(outlier.shape = NA)+
+    geom_point(color = gr, alpha = 0.5, size = 4) +
+    theme_classic() +
+    theme(axis.text=element_text(size=19), axis.title = element_text(size = 19), strip.text.x = element_text(size = 12), legend.title = element_text(size=19), legend.text = element_text(size=19)) +
+    ylab("Relative abundance (%) per site") +
+    xlab("Region") +
+    facet_wrap(vars(Species_percent_sim), scales = "free_y")
+region_RF_plot
+
+ggsave(region_RF_plot, file = "output/plots/region_RF_plot.png", dpi = 400, device = "png",
+       width = 12, height = 8, units = "in")
+
+```
+
+```{r species list per region}
+# species list BB 2019
+# prune to BB samples
+BB_2019_phy <- prune_samples(sample_data(fish_2019_phyloseq)$Region == "BB", fish_2019_phyloseq)
+# remove OTUs with zero sum abundance across samples in this phyloseq object
+BB_2019_phy = filter_taxa(BB_2019_phy, function(x) sum(x) > 0, TRUE)
+# sample metadata as df for sample sizes after pruning
+BB_2019_data <- data.frame(sample_data(BB_2019_phy)) # sample size is 2-3 per site, N = 17 
+# melt OTU table and metadata to dataframe
+BB_2019_df <- psmelt(BB_2019_phy)
+# unique species list for BB 2019
+BB_2019_species_list <- data.frame(unique(BB_2019_df$Species_percent_sim)) # 38 unique taxonomic ids (name and % sim value combined)
+# rename column
+BB_2019_species_list <- rename(BB_2019_species_list, Species_per_sim_list = unique.BB_2019_df.Species_percent_sim.)
+write.csv(BB_2019_species_list, file = "output/stats/BB_2019_species_list_rarefied.csv")
+
+# species list AK 2019
+# prune to AK samples
+AK_2019_phy <- prune_samples(sample_data(fish_2019_phyloseq)$Region == "AK", fish_2019_phyloseq)
+# remove OTUs with zero sum abundance across samples in this phyloseq object
+AK_2019_phy = filter_taxa(AK_2019_phy, function(x) sum(x) > 0, TRUE)
+# sample metadata as df for sample sizes after pruning
+AK_2019_data <- data.frame(sample_data(AK_2019_phy)) # sample size is 2-3 per site, N = 14 
+# melt OTU table and metadata to dataframe
+AK_2019_df <- psmelt(AK_2019_phy)
+# unique species list for AK 2019
+AK_2019_species_list <- data.frame(unique(AK_2019_df$Species_percent_sim)) # 38 taxonomic ids (name and % sim value combined)
+# rename column
+AK_2019_species_list <- rename(AK_2019_species_list, Species_per_sim_list = unique.AK_2019_df.Species_percent_sim.)
+write.csv(AK_2019_species_list, file = "output/stats/AK_2019_species_list_rarefied.csv")
+
+# species list BC 2019
+# prune to BC samples
+BC_2019_phy <- prune_samples(sample_data(fish_2019_phyloseq)$Region == "BC", fish_2019_phyloseq)
+# remove OTUs with zero sum abundance across samples in this phyloseq object
+BC_2019_phy = filter_taxa(BC_2019_phy, function(x) sum(x) > 0, TRUE)
+# sample metadata as df for sample sizes after pruning
+BC_2019_data <- data.frame(sample_data(BC_2019_phy)) # sample size is 2-3 per site, N = 12 
+# melt OTU table and metadata to dataframe
+BC_2019_df <- psmelt(BC_2019_phy)
+# unique species list for BC 2019
+BC_2019_species_list <- data.frame(unique(BC_2019_df$Species_percent_sim)) # 44 unique taxonomic ids (name and % sim value combined)
+# rename column
+BC_2019_species_list <- rename(BC_2019_species_list, Species_per_sim_list = unique.BC_2019_df.Species_percent_sim.)
+write.csv(BC_2019_species_list, file = "output/stats/BC_2019_species_list_rarefied.csv")
+
+# species list WA 2019
+# prune to WA samples
+WA_2019_phy <- prune_samples(sample_data(fish_2019_phyloseq)$Region == "WA", fish_2019_phyloseq)
+# remove OTUs with zero sum abundance across samples in this phyloseq object
+WA_2019_phy = filter_taxa(WA_2019_phy, function(x) sum(x) > 0, TRUE)
+# sample metadata as df for sample sizes after pruning
+WA_2019_data <- data.frame(sample_data(WA_2019_phy)) # sample size is 3 per site, N = 15 
+# melt OTU table and metadata to dataframe
+WA_2019_df <- psmelt(WA_2019_phy)
+# unique species list for WA 2019
+WA_2019_species_list <- data.frame(unique(WA_2019_df$Species_percent_sim)) # 44 unique taxonomic ids (name and % sim value combined)
+# rename column
+WA_2019_species_list <- rename(WA_2019_species_list, Species_per_sim_list = unique.WA_2019_df.Species_percent_sim.)
+write.csv(WA_2019_species_list, file = "output/stats/WA_2019_species_list_rarefied.csv")
+
+# species list OR 2019
+# prune to OR samples
+OR_2019_phy <- prune_samples(sample_data(fish_2019_phyloseq)$Region == "OR", fish_2019_phyloseq)
+# remove OTUs with zero sum abundance across samples in this phyloseq object
+OR_2019_phy = filter_taxa(OR_2019_phy, function(x) sum(x) > 0, TRUE)
+# sample metadata as df for sample sizes after pruning
+OR_2019_data <- data.frame(sample_data(OR_2019_phy)) # sample size is 2-3 per site, N = 14 
+# melt OTU table and metadata to dataframe
+OR_2019_df <- psmelt(OR_2019_phy)
+# unique species list for OR 2019
+OR_2019_species_list <- data.frame(unique(OR_2019_df$Species_percent_sim)) # 34 unique taxonomic ids (name and % sim value combined)
+# rename column
+OR_2019_species_list <- rename(OR_2019_species_list, Species_per_sim_list = unique.OR_2019_df.Species_percent_sim.)
+write.csv(OR_2019_species_list, file = "output/stats/OR_2019_species_list_rarefied.csv")
+
+# species list SD 2019
+# prune to SD samples
+SD_2019_phy <- prune_samples(sample_data(fish_2019_phyloseq)$Region == "SD", fish_2019_phyloseq)
+# remove OTUs with zero sum abundance across samples in this phyloseq object
+SD_2019_phy = filter_taxa(SD_2019_phy, function(x) sum(x) > 0, TRUE)
+# sample metadata as df for sample sizes after pruning
+SD_2019_data <- data.frame(sample_data(SD_2019_phy)) # sample size is 2-3 per site, N = 14 
+# melt OTU table and metadata to dataframe
+SD_2019_df <- psmelt(SD_2019_phy)
+# unique species list for SD 2019
+SD_2019_species_list <- data.frame(unique(SD_2019_df$Species_percent_sim)) # 29 unique taxonomic ids (name and % sim value combined)
+# rename column
+SD_2019_species_list <- rename(SD_2019_species_list, Species_per_sim_list = unique.SD_2019_df.Species_percent_sim.)
+write.csv(SD_2019_species_list, file = "output/stats/SD_2019_species_list_rarefied.csv")
+```
+
+```{r barplot seine 2019}
+BB_seine_2019_summary <- read_csv("summary/BB_seine_2019_summary.csv")
+
+# order to match common species names color from eDNA plot for BB
+col25 =  c("#4E79A7", "#FFBE7D", "#A0CBE8","#F28E2B", "#59A14F", "#8CD17D", "#F1CE63", "#499894", "#B6992D","#E15759",   "#57606c","#BAB0AC", "#86BCB6", "#FF9D9A", "#D37295", "#FABFD2", "#B07AA1", "#b66353", "#9D7660", "#D7B5A6",
+"#fbb04e","#D4A6C8", "#638b66", "#bfbb60", "#b85a0d"  )
+
+show_col(col25) # only 23 colors needed
+
+# sites from EWD study
+side_code_list <- c("A", "B", "C", "D", "E", "F")
+# filter to this list of sites
+BB_seine_2019_summary_A_F <- filter(BB_seine_2019_summary, SiteCode %in% side_code_list)
+
+BB_seine_2019 <- ggplot(data = BB_seine_2019_summary_A_F, 
+aes(x = SiteCode, y = RelAbund,
+    fill = Species)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values = col25) +
+  theme(legend.title = element_text(size=14), legend.text = element_text(size=14), axis.text=element_text(size=16), axis.title = element_text(size = 16)) +
+  ylab("Relative abundance %") +
+  xlab("Site") +
+  guides(fill=guide_legend(""))
+
+BB_seine_2019
+
+ggsave("output/plots/BB_seine_2019.png",
+       dpi = 400, device = "png", width = 11, height = 8.5, units = "in")
+```
+
+```{r barplot eDNA 2020}
+# summary statistics for BB 2020
+fish_2020_phyloseq
+
+# sample metadata
+BB_2020_data <- data.frame(sample_data(fish_2020_phyloseq)) # n = 84, n=11 Millerton, n=13 Campbell Cove, others n = 15
+# melt OTU and metadata to dataframe
+BB_2020_df <- psmelt(fish_2020_phyloseq)
+# unique species list for BB 2020
+BB_2020_species_list <- data.frame(unique(BB_2020_df$Species_percent_sim)) # 58 unique taxonomic ids (name and % sim value combined)
+# rename column
+BB_2020_species_list <- rename(BB_2020_species_list, Species_per_sim_list = unique.BB_2020_df.Species_percent_sim.)
+write.csv(BB_2020_species_list, file = "output/stats/BB_2020_species_list_rarefied.csv")
+
+# bind 2019 and 2020 BB species list
+BB_2019_2020_species_list <- bind_rows(BB_2019_species_list, BB_2020_species_list) # 96
+# get unique list of species percent similarity
+BB_2019_2020_species_list_unique <- unique(BB_2019_2020_species_list$Species_per_sim_list) # 61
+BB_2019_2020_species_list_unique <- as.data.frame(BB_2019_2020_species_list_unique)
+BB_2019_2020_species_list_unique <- rename(BB_2019_2020_species_list_unique, Species_per_sim = "BB_2019_2020_species_list_unique")
+write.csv(BB_2019_2020_species_list_unique, file = "output/stats/BB_2019_2020_species_list_rarefied_unique.csv")
+
+# species bar plots
+fish_2020_phyloseq_species <- tax_glom(fish_2020_phyloseq, taxrank = "Species_percent_sim", NArm = FALSE)
+fish_2020_phyloseq_species
+
+df <- psmelt(fish_2020_phyloseq_species)
+
+# subset dataframe by columns of interest
+fish_2020_phyloseq_species_df <- subset(df, select = c(Abundance, Species, Species_percent_sim, SiteCode))
+
+# obtain unique list of SiteCodes
+Site_unique <- unique(fish_2020_phyloseq_species_df$SiteCode)
+
+# create list
+Site_table <- list()
+
+# calculate relative abundances per Site
+for(i in seq_along(Site_unique)) {
+  this_subset=subset(fish_2020_phyloseq_species_df, SiteCode == Site_unique[i])
+  temp = this_subset %>% group_by(Species_percent_sim) %>% summarise_each(funs(sum (Abundance)))
+  temp$SiteCode = Site_unique[i]
+  temp$N = sum(temp$Abundance) 
+  temp$RelAbund <- ( (temp$Abundance / temp$N) * 100 )
+  temp$SumRelAbund <- sum(temp$RelAbund) 
+  Site_table[[i]] <- temp
+  
+  print(temp)
+}
+
+# bind items in region_table list with rbind/bind_rows
+Site_table <- bind_rows(Site_table)
+
+# create column of top twenty most abundant taxa across all sites
+# subset to taxa and relative abundance column 
+Site_table_subset <-  subset(Site_table, select = c(Species_percent_sim, RelAbund))
+
+# group by taxa and calculate mean relative abundances across all Sites
+MeanRelAbundSpecies <- Site_table_subset %>%
+  group_by(Species_percent_sim) %>%
+  summarise_each(funs(mean (RelAbund)))
+
+# sort by decreasing mean relative abundance 
+MeanRelAbundSpecies <- MeanRelAbundSpecies[order(MeanRelAbundSpecies$RelAbund, decreasing = TRUE), ]
+# subset by the first 20 rows (~ top twenty most abundant taxa)
+top_twenty <- MeanRelAbundSpecies[1:20, ]
+
+# vector of top twenty taxa names
+top_twenty_names <- top_twenty$Species_percent_sim
+
+# create new column of top twenty most abundant taxa in region_table dataframe
+Site_table$Species20 <- NA
+
+# fill column with top 20 names with ifelse statement
+Site_table$Species20 <- ifelse(Site_table$Species_percent_sim %in% top_twenty_names, Site_table$Species_percent_sim, NA)
+
+# vector of tableau hexidecimal codes for colors - rearranged for BB species between years
+colBB_20 =  c("#4E79A7", "#FFBE7D", "#A0CBE8", "#F28E2B", "#B6992D","#F1CE63", "#86BCB6", "#E15759", "#59A14F", "#FF9D9A",   "#57606c",  "#BAB0AC", "#D37295", "#8CD17D","#499894", "#B07AA1", "#9D7660", "#D7B5A6", "#FABFD2", "#D4A6C8")
+
+show_col(colBB_20)
+
+# bar plot of 20 most abundant taxa
+barplot_2020 <- ggplot(Site_table, aes(x = SiteCode, y = RelAbund, fill = Species20)) + 
+  geom_bar(stat="identity") +
+  scale_fill_manual(values = colBB_20) +
+  theme(legend.title = element_text(size=14), legend.text = element_text(size=14), axis.text=element_text(size=16), axis.title = element_text(size = 16)) +
+  ylab("Relative abundance %") +
+  xlab("Site") +
+  guides(fill=guide_legend(""))
+
+barplot_2020
+
+ggsave(barplot_2020, file = "output/plots/barplot_2020_BB_v2.png", dpi = 400, device = "png",
+       width = 11, height = 8.5, units = "in")
+```
+
+```{r seine vs. eDNA 2019 Bodega}
+BB_2019_seine_fish_summary <- read_csv(file = "summary/BB_seine_2019_count_summary_EWD_sites.csv")
+
+BB_2019_seine_fish_species <- unique(BB_2019_seine_fish_summary$Species)
+
+# melt with metadata 
+# non-rarefied data
+df_19 = psmelt(fish_2019_nonrarefied_phyloseq)
+df_19_BB <- df_19 %>% filter(RegionName == "Bodega")
+
+BB_2019_eDNA_fish_species_per_sim <- unique(df_19_BB$Species_percent_sim)
+BB_2019_eDNA_fish_taxon <- unique(df_19_BB$Species)
+
+common_species_BB_2019 <- intersect(BB_2019_eDNA_fish_taxon, BB_2019_seine_fish_species)
+eDNA_unique_species <- setdiff(BB_2019_eDNA_fish_taxon, BB_2019_seine_fish_species)
+# remove families and orders for which species level ids are found in the seine data
+eDNA_unique_species_reduced <- eDNA_unique_species[-which(eDNA_unique_species %in% c('Embiotocidae','Syngnathus','Stichaeidae', 'Pholis', 'Sebastes', 'Pleuronectidae', 'Actinopteri', 'Perciformes',  "Gobiidae"))] 
+eDNA_unique_species_reduced
+seine_unique_species <- setdiff(BB_2019_seine_fish_species, BB_2019_eDNA_fish_taxon)
+
+max_length <- length(eDNA_unique_species_reduced)
+common_species <- c(common_species_BB_2019, rep(NA, max_length - length(common_species_BB_2019)))
+seine_unique <- c(seine_unique_species, rep(NA, max_length - length(seine_unique_species)))
+
+df_unique_common_taxa <- data.frame(eDNA_unique_species_reduced, seine_unique, common_species)
+df_unique_common_taxa <- df_unique_common_taxa %>% rename(eDNA_unique = eDNA_unique_species_reduced)
+
+write_csv(df_unique_common_taxa, file = "output/stats/BB_2019_unique_common_taxa_survey_type.csv")
+
+```
+
+```{r OTU accum vegan 2019}
+# melt with metadata 
+# non-rarefied data for rarefaction curve
+df_19 = psmelt(fish_2019_nonrarefied_phyloseq)
+
+# subset to columns abundance, sample, OTU
+df_19_sub <- subset(df_19, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_19_sub_w <- df_19_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_19_sub_w) <- df_19_sub_w$Sample
+# remove sample column
+df_19_sub_w <- subset(df_19_sub_w, select = -c(Sample))
+
+# spec accum
+SpAcc19 <- specaccum(df_19_sub_w, method = "random")
+summary(SpAcc19)
+plot(SpAcc19, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAcc19)
+SpAcc19
+
+SpAcc19df <- data.frame(Sites=as.numeric(SpAcc19$sites), Richness=SpAcc19$richness, SD=SpAcc19$sd)
+SpAcc19df$Sites <- order(SpAcc19df$Sites)
+
+SpAcc19df
+
+specc_accum_19 <- ggplot(data=SpAcc19df) +
+  geom_point(aes(x=Sites, y=Richness)) +
+  scale_x_continuous(breaks=c(10,20,30,40,50,60,70,80,90), limits = c(0,90)) +
+  scale_y_continuous(breaks=c(50,100,150,200,250,300,350,400,450), limits = c(0,450)) +
+  scale_colour_manual(values = "darkgray") +
+  geom_line(aes(x=Sites, y=Richness)) +
+  geom_ribbon(aes(x=Sites, ymin=(Richness-SD),ymax=(Richness+SD)),alpha=0.2) +
+  theme_classic() +
+  theme(axis.text=element_text(size=12), axis.title = element_text(size = 14)) +
+  ylab("OTU richness") +
+  xlab("Sample size")
+
+specc_accum_19
+
+#split by region
+df_19_AK = filter(df_19, RegionName == "Alaska")
+df_19_BC = filter(df_19, RegionName == "British Columbia")
+df_19_WA = filter(df_19, RegionName == "Washington")
+df_19_OR = filter(df_19, RegionName == "Oregon")
+df_19_BB = filter(df_19, RegionName == "Bodega")
+df_19_SD = filter(df_19, RegionName == "San Diego")
+
+# AK
+# subset to columns abundance, sample, OTU
+df_AK_sub <- subset(df_19_AK, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_AK_sub_w <- df_AK_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_AK_sub_w) <- df_AK_sub_w$Sample
+# remove sample column
+df_AK_sub_w <- subset(df_AK_sub_w, select = -c(Sample))
+
+# spec accum for AK
+SpAccAK <- specaccum(df_AK_sub_w, method = "random")
+summary(SpAccAK)
+plot(SpAccAK, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccAK)
+SpAccAK
+
+# BC
+# subset to columns abundance, sample, OTU
+df_BC_sub <- subset(df_19_BC, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_BC_sub_w <- df_BC_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_BC_sub_w) <- df_BC_sub_w$Sample
+# remove sample column
+df_BC_sub_w <- subset(df_BC_sub_w, select = -c(Sample))
+
+# spec accum for BC
+SpAccBC <- specaccum(df_BC_sub_w, method = "random")
+summary(SpAccBC)
+plot(SpAccBC, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccBC)
+SpAccBC
+
+# WA
+# subset to columns abundance, sample, OTU
+df_WA_sub <- subset(df_19_WA, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_WA_sub_w <- df_WA_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_WA_sub_w) <- df_WA_sub_w$Sample
+# remove sample column
+df_WA_sub_w <- subset(df_WA_sub_w, select = -c(Sample))
+
+# spec accum for WA
+SpAccWA <- specaccum(df_WA_sub_w, method = "random")
+summary(SpAccWA)
+plot(SpAccWA, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccWA)
+SpAccWA
+
+# OR
+# subset to columns abundance, sample, OTU
+df_OR_sub <- subset(df_19_OR, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_OR_sub_w <- df_OR_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_OR_sub_w) <- df_OR_sub_w$Sample
+# remove sample column
+df_OR_sub_w <- subset(df_OR_sub_w, select = -c(Sample))
+
+# spec accum for OR
+SpAccOR <- specaccum(df_OR_sub_w, method = "random")
+summary(SpAccOR)
+plot(SpAccOR, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccOR)
+SpAccOR
+
+# BB
+# subset to columns abundance, sample, OTU
+df_BB_sub <- subset(df_19_BB, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_BB_sub_w <- df_BB_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_BB_sub_w) <- df_BB_sub_w$Sample
+# remove sample column
+df_BB_sub_w <- subset(df_BB_sub_w, select = -c(Sample))
+
+# spec accum for BB
+SpAccBB <- specaccum(df_BB_sub_w, method = "random")
+summary(SpAccBB)
+plot(SpAccBB, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccBB)
+SpAccBB
+
+# SD
+# subset to columns abundance, sample, OTU
+df_SD_sub <- subset(df_19_SD, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_SD_sub_w <- df_SD_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_SD_sub_w) <- df_SD_sub_w$Sample
+# remove sample column
+df_SD_sub_w <- subset(df_SD_sub_w, select = -c(Sample))
+
+# spec accum for SD
+SpAccSD <- specaccum(df_SD_sub_w, method = "random")
+summary(SpAccSD)
+plot(SpAccSD, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccSD)
+SpAccSD
+
+# add seine data for BB
+# read in data
+BB_2019_seine_fish_summary <- read_csv(file = "summary/BB_seine_2019_count_summary_EWD_sites.csv")
+
+#create a matrix of Species as columns and samples as row names, abundance as values
+# pivot to wide format
+BB_2019_seine_fish_summary_w <- BB_2019_seine_fish_summary %>%
+  pivot_wider(names_from = Species, values_from = Count_seine)
+# make column sample to row names
+seine_fish <- BB_2019_seine_fish_summary_w %>% remove_rownames %>% column_to_rownames(var="Sample")
+
+# NA as 0 counts
+seine_fish[is.na(seine_fish)] <- 0
+
+# rarefaction Species richness by sampling effort per seine
+rarecurve(seine_fish, col = "blue") 
+
+# Species accumulation across seine samples
+seine_accum <- specaccum(seine_fish, "random")
+summary(seine_accum)
+plot(seine_accum, ci.type="poly", col="blue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(seine_accum)
+
+#creating a dataframes for ggplot2
+seine_accumdf <- data.frame(Sites=as.numeric(seine_accum$sites), Richness=seine_accum$richness, SD=seine_accum$sd)
+# order by sites
+seine_accumdf$Sites <- order(seine_accumdf$Sites)
+# add column for location
+seine_accumdf$Region <- c("Bodega seine")
+
+#creating a dataframes for ggplot2
+SpAccSDdf <- data.frame(Sites=as.numeric(SpAccSD$sites), Richness=SpAccSD$richness, SD=SpAccSD$sd)
+SpAccSDdf$Sites <- order(SpAccSDdf$Sites)
+SpAccSDdf$Region <- c("San Diego")
+
+SpAccBBdf <- data.frame(Sites=as.numeric(SpAccBB$sites), Richness=SpAccBB$richness, SD=SpAccBB$sd)
+SpAccBBdf$Sites <- order(SpAccBBdf$Sites)
+SpAccBBdf$Region <- c("Bodega")
+
+SpAccORdf <- data.frame(Sites=as.numeric(SpAccOR$sites), Richness=SpAccOR$richness, SD=SpAccOR$sd)
+SpAccORdf$Sites <- order(SpAccORdf$Sites)
+SpAccORdf$Region <- c("Oregon")
+
+SpAccWAdf <- data.frame(Sites=as.numeric(SpAccWA$sites), Richness=SpAccWA$richness, SD=SpAccWA$sd)
+SpAccWAdf$Sites <- order(SpAccWAdf$Sites)
+SpAccWAdf$Region <- c("Washington")
+
+SpAccBCdf <- data.frame(Sites=as.numeric(SpAccBC$sites), Richness=SpAccBC$richness, SD=SpAccBC$sd)
+SpAccBCdf$Sites <- order(SpAccBCdf$Sites)
+SpAccBCdf$Region <- c("British Columbia")
+
+SpAccAKdf <- data.frame(Sites=as.numeric(SpAccAK$sites), Richness=SpAccAK$richness, SD=SpAccAK$sd)
+SpAccAKdf$Sites <- order(SpAccAKdf$Sites)
+SpAccAKdf$Region <- c("Alaska")
+
+# row bind all dataframes
+specaccum_all_regions <- rbind(SpAccAKdf, SpAccBCdf, SpAccWAdf, SpAccORdf, SpAccBBdf, SpAccSDdf, seine_accumdf)
+mypal_locuszoom <- c("#D43F3AFF", "#5CB85CFF", "#9632B8FF", "#46B8DAFF", "#EEA236FF", "#357EBDFF", "#B8B8B8FF")
+names(mypal_locuszoom) = c("Alaska", "British Columbia", "Washington", "Oregon", "Bodega", "San Diego", "Bodega seine")
+
+specaccum_all_regions$Region <- factor(specaccum_all_regions$Region, levels = c("Alaska", "British Columbia", "Washington", "Oregon", "Bodega", "San Diego", "Bodega seine"))
+
+specc_accum_19_all <- ggplot(data=specaccum_all_regions, mapping = aes(color = Region)) +
+  geom_point(aes(x=Sites, y=Richness)) +
+  scale_x_continuous(breaks=c(2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36), limits = c(0,36)) +
+  scale_y_continuous(breaks=c(0, 25, 50, 75, 100, 125, 150), limits = c(0, 150)) +
+  geom_line(aes(x=Sites, y=Richness, color = Region)) +
+  geom_ribbon(aes(x=Sites, ymin=(Richness-SD), ymax=(Richness+SD), fill = Region), alpha=0.1) +
+  scale_colour_manual(values = mypal_locuszoom) +
+  scale_fill_manual(values = mypal_locuszoom) +
+  theme_classic() +
+  theme(axis.text=element_text(size=14), axis.title = element_text(size = 14)) +
+  ylab("OTU richness") +
+  xlab("Sample size")
+
+specc_accum_19_all
+
+ggsave(specc_accum_19_all, file = "output/plots/specc_accum_2019_all_x_long.png", dpi = 400, device = "png",
+       width = 11, height = 8.5, units = "in")
+
+Figure_spec_acumm_stack <- ggarrange(specc_accum_19,specc_accum_19_all, labels = c("A", "B"), ncol = 1, nrow = 2, align = "hv", heights = c(1,1))
+Figure_spec_acumm_stack
+ggsave(Figure_spec_acumm_stack, file = "output/plots/Figure_spec_acumm_stack_2019_x_long.png", 
+        dpi = 400, device = "png", width = 11, height = 8.5, units = "in")
+
+```
+
+```{r OTU accum vegan 2020}
+# melt with metadata
+# non-rarefied data for rarefaction curve
+df_20 = psmelt(fish_2020_nonrarefied_phyloseq)
+
+# subset to columns abundance, sample, OTU
+df_20_sub <- subset(df_20, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_20_sub_w <- df_20_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_20_sub_w) <- df_20_sub_w$Sample
+# remove sample column
+df_20_sub_w <- subset(df_20_sub_w, select = -c(Sample))
+
+# spec accum
+SpAcc20 <- specaccum(df_20_sub_w, method = "random")
+summary(SpAcc20)
+plot(SpAcc20, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAcc20)
+SpAcc20
+
+SpAcc20df <- data.frame(Sites=as.numeric(SpAcc20$sites), Richness=SpAcc20$richness, SD=SpAcc20$sd)
+SpAcc20df$Sites <- order(SpAcc20df$Sites)
+
+SpAcc20df
+
+specc_accum_20_BB <- ggplot(data=SpAcc20df) +
+  geom_point(aes(x=Sites, y=Richness)) +
+  scale_x_continuous(breaks=c(10,20,30,40,50,60,70,80,90), limits = c(0,90)) +
+  scale_y_continuous(breaks=c(50,100,150,200,250,300,350), limits = c(0,350)) +
+  scale_colour_manual(values = "darkgray") +
+  geom_line(aes(x=Sites, y=Richness)) +
+  geom_ribbon(aes(x=Sites, ymin=(Richness-SD),ymax=(Richness+SD)),alpha=0.2) +
+  theme_classic() +
+  theme(axis.text=element_text(size=12), axis.title = element_text(size = 14)) +
+  ylab("OTU richness") +
+  xlab("Sample size")
+
+specc_accum_20_BB
+
+ggsave(specc_accum_20_BB, file = "output/plots/specc_accum_2020_BB.png", dpi = 400, device = "png",
+       width = 11, height = 8.5, units = "in")
+
+# repeat by site name
+df_20_NC = filter(df_20, SiteName == "Nicks Cove")
+df_20_BL = filter(df_20, SiteName == "Blakes Landing")
+df_20_MP = filter(df_20, SiteName == "Millerton")
+df_20_WP = filter(df_20, SiteName == "Westside Park")
+df_20_MM = filter(df_20, SiteName == "Masons Marina")
+df_20_CC = filter(df_20, SiteName == "Campbell Cove")
+
+# NC
+# subset to columns abundance, sample, OTU
+df_20_NC_sub <- subset(df_20_NC, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_20_NC_sub_w <- df_20_NC_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_20_NC_sub_w) <- df_20_NC_sub_w$Sample
+# remove sample column
+df_20_NC_sub_w <- subset(df_20_NC_sub_w, select = -c(Sample))
+
+# spec accum
+SpAccNC <- specaccum(df_20_NC_sub_w, method = "random")
+summary(SpAccNC)
+plot(SpAccNC, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccNC)
+SpAccNC
+
+#creating a dataframes for ggplot2
+SpAccNCdf <- data.frame(Samples=as.numeric(SpAccNC$sites), Richness=SpAccNC$richness, SD=SpAccNC$sd)
+SpAccNCdf$Samples <- order(SpAccNCdf$Samples)
+SpAccNCdf$Site <- c("Nicks Cove")
+SpAccNCdf$SiteCode <- c("C")
+
+# BL
+# subset to columns abundance, sample, OTU
+df_20_BL_sub <- subset(df_20_BL, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_20_BL_sub_w <- df_20_BL_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_20_BL_sub_w) <- df_20_BL_sub_w$Sample
+# remove sample column
+df_20_BL_sub_w <- subset(df_20_BL_sub_w, select = -c(Sample))
+
+# spec accum
+SpAccBL <- specaccum(df_20_BL_sub_w, method = "random")
+summary(SpAccBL)
+plot(SpAccBL, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccBL)
+SpAccBL
+
+#creating a dataframes for ggplot2
+SpAccBLdf <- data.frame(Samples=as.numeric(SpAccBL$sites), Richness=SpAccBL$richness, SD=SpAccBL$sd)
+SpAccBLdf$Samples <- order(SpAccBLdf$Samples)
+SpAccBLdf$Site <- c("Blakes Landing")
+SpAccBLdf$SiteCode <- c("F")
+
+# MP
+# subset to columns abundance, sample, OTU
+df_20_MP_sub <- subset(df_20_MP, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_20_MP_sub_w <- df_20_MP_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_20_MP_sub_w) <- df_20_MP_sub_w$Sample
+# remove sample column
+df_20_MP_sub_w <- subset(df_20_MP_sub_w, select = -c(Sample))
+
+# spec accum
+SpAccMP <- specaccum(df_20_MP_sub_w, method = "random")
+summary(SpAccMP)
+plot(SpAccMP, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccMP)
+SpAccMP
+
+#creating a dataframes for ggplot2
+SpAccMPdf <- data.frame(Samples=as.numeric(SpAccMP$sites), Richness=SpAccMP$richness, SD=SpAccMP$sd)
+SpAccMPdf$Samples <- order(SpAccMPdf$Samples)
+SpAccMPdf$Site <- c("Millerton")
+SpAccMPdf$SiteCode <- c("E")
+
+# WP
+# subset to columns abundance, sample, OTU
+df_20_WP_sub <- subset(df_20_WP, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_20_WP_sub_w <- df_20_WP_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_20_WP_sub_w) <- df_20_WP_sub_w$Sample
+# remove sample column
+df_20_WP_sub_w <- subset(df_20_WP_sub_w, select = -c(Sample))
+
+# spec accum
+SpAccWP <- specaccum(df_20_WP_sub_w, method = "random")
+summary(SpAccWP)
+plot(SpAccWP, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccWP)
+SpAccWP
+
+#creating a dataframes for ggplot2
+SpAccWPdf <- data.frame(Samples=as.numeric(SpAccWP$sites), Richness=SpAccWP$richness, SD=SpAccWP$sd)
+SpAccWPdf$Samples <- order(SpAccWPdf$Samples)
+SpAccWPdf$Site <- c("Westside Park")
+SpAccWPdf$SiteCode <- c("A")
+
+# MM
+# subset to columns abundance, sample, OTU
+df_20_MM_sub <- subset(df_20_MM, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_20_MM_sub_w <- df_20_MM_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_20_MM_sub_w) <- df_20_MM_sub_w$Sample
+# remove sample column
+df_20_MM_sub_w <- subset(df_20_MM_sub_w, select = -c(Sample))
+
+# spec accum
+SpAccMM <- specaccum(df_20_MM_sub_w, method = "random")
+summary(SpAccMM)
+plot(SpAccMM, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccMM)
+SpAccMM
+
+#creating a dataframes for ggplot2
+SpAccMMdf <- data.frame(Samples=as.numeric(SpAccMM$sites), Richness=SpAccMM$richness, SD=SpAccMM$sd)
+SpAccMMdf$Samples <- order(SpAccMMdf$Samples)
+SpAccMMdf$Site <- c("Masons Marina")
+SpAccMMdf$SiteCode <- c("B")
+
+# CC
+# subset to columns abundance, sample, OTU
+df_20_CC_sub <- subset(df_20_CC, select = c(Abundance, Sample, OTU))
+# pivot wider
+df_20_CC_sub_w <- df_20_CC_sub %>%
+  pivot_wider(names_from = OTU, values_from = Abundance)
+# sample as row names
+row.names(df_20_CC_sub_w) <- df_20_CC_sub_w$Sample
+# remove sample column
+df_20_CC_sub_w <- subset(df_20_CC_sub_w, select = -c(Sample))
+
+# spec accum
+SpAccCC <- specaccum(df_20_CC_sub_w, method = "random")
+summary(SpAccCC)
+plot(SpAccCC, ci.type="poly", col="darkblue", lwd=2, ci.lty=0, ci.col="lightblue")
+boxplot(SpAccCC)
+SpAccCC
+
+#creating a dataframes for ggplot2
+SpAccCCdf <- data.frame(Samples=as.numeric(SpAccCC$sites), Richness=SpAccCC$richness, SD=SpAccCC$sd)
+SpAccCCdf$Samples <- order(SpAccCCdf$Samples)
+SpAccCCdf$Site <- c("Campbell Cove")
+SpAccCCdf$SiteCode <- c("D")
+
+# row bind all dataframes
+specaccum_all_sites <- rbind(SpAccNCdf, SpAccBLdf, SpAccMPdf, SpAccWPdf, SpAccMMdf, SpAccCCdf)
+mypal_locuszoom <- pal_locuszoom("default")(6)
+names(mypal_locuszoom) = c("A", "B", "D", "C", "F", "E")
+
+# order factor levels
+specaccum_all_sites$SiteCode <- factor(specaccum_all_sites$SiteCode, levels = c("A", "B", "D", "C", "F", "E"))
+
+specc_accum_20_sites <- ggplot(data=specaccum_all_sites, mapping = aes(color = SiteCode)) +
+  geom_point(aes(x=Samples, y=Richness)) +
+  scale_x_continuous(breaks=c(1,5,10,15), limits = c(0,15)) +
+  scale_y_continuous(breaks=c(0,25, 50, 75, 100, 125, 150), limits = c(0,150)) +
+  geom_line(aes(x=Samples, y=Richness)) +
+  geom_ribbon(aes(x=Samples, ymin=(Richness-SD),ymax=(Richness+SD), fill = SiteCode), alpha=0.1) +
+  scale_colour_manual(values = mypal_locuszoom) +
+  theme_classic() +
+  theme(axis.text=element_text(size=12), axis.title = element_text(size = 14)) +
+  ylab("OTU richness") +
+  xlab("Sample size")
+
+specc_accum_20_sites
+
+ggsave(specc_accum_20_sites, file = "output/plots/specc_accum_2020_SiteCode.png", dpi = 400, device = "png",
+       width = 11, height = 8.5, units = "in")
+
+SpecAccum_2020 <- ggarrange(specc_accum_20_BB, specc_accum_20_sites,
+                 labels = c("A", "B"), ncol = 1, nrow = 2, align = "hv", heights = c(1,1))
+
+ggsave(SpecAccum_2020, file = "output/plots/SpecAccum_2020.png", dpi = 400, device = "png",
+       width = 8, height = 11, units = "in")
+
+```
