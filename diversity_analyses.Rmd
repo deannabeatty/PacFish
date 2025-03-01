@@ -35,6 +35,8 @@ fish_2019_phyloseq <- readRDS(file = "output/phyloseq_object/fish_2019_phyloseq_
 fish_2019_nonrarefied_phyloseq <- readRDS(file = "output/phyloseq_object/fish_2019_nonrarefied_phyloseq_v2.rds")
 fish_2020_phyloseq <- readRDS(file = "output/phyloseq_object/fish_2020_phyloseq_v2.rds")
 fish_2020_nonrarefied_phyloseq <- readRDS(file = "output/phyloseq_object/fish_2020_nonrarefied_phyloseq_v2.rds")
+fish_phyloseq <- readRDS(file = "output/phyloseq_object/fish_phyloseq_v2.rds")
+Fish_phyloseq_non_rarefied <- readRDS(file = "output/phyloseq_object/fish_phyloseq_non_rarefied_v2.rds")
 
 # order factor levels
 sample_data(fish_2019_phyloseq)$RegionName <- factor(sample_data(fish_2019_phyloseq)$RegionName, levels = c("Alaska", "British Columbia", "Washington", "Oregon", "Bodega", "San Diego"))
@@ -48,8 +50,16 @@ sample_data(fish_2019_nonrarefied_phyloseq)$Region <- factor(sample_data(fish_20
 # remove samples from sites in Bodega that are not part of wasting disease study
 remove <- c("Sacramento Landing", "Drakes Estero")
 fish_2019_phyloseq <- prune_samples(!sample_data(fish_2019_phyloseq)$SiteName %in% remove, fish_2019_phyloseq)
+fish_2019_phyloseq <- prune_taxa(taxa_sums(fish_2019_phyloseq) > 0, fish_2019_phyloseq)
 
 fish_2019_nonrarefied_phyloseq <-  prune_samples(!sample_data(fish_2019_nonrarefied_phyloseq)$SiteName %in% remove, fish_2019_nonrarefied_phyloseq)
+fish_2019_nonrarefied_phyloseq <- prune_taxa(taxa_sums(fish_2019_nonrarefied_phyloseq) > 0, fish_2019_nonrarefied_phyloseq)
+
+fish_phyloseq <- prune_samples(!sample_data(fish_phyloseq)$SiteName %in% remove, fish_phyloseq)
+fish_phyloseq <- prune_taxa(taxa_sums(fish_phyloseq) > 0, fish_phyloseq)
+
+Fish_phyloseq_non_rarefied <- prune_samples(!sample_data(Fish_phyloseq_non_rarefied)$SiteName %in% remove, Fish_phyloseq_non_rarefied)
+Fish_phyloseq_non_rarefied <- prune_taxa(taxa_sums(Fish_phyloseq_non_rarefied) > 0, Fish_phyloseq_non_rarefied)
 
 ```
 
@@ -73,9 +83,13 @@ metadata_2019_SST <- data.frame(sample_data(fish_2019_phyloseq_SST))
 
 # bray curtis dissimilarity
 fish_2019_SST_bray <- distance(fish_2019_phyloseq_SST, method = "bray")
-
 # pcoa ordination
 fish_2019_SST_bray_ord <- ordinate(fish_2019_phyloseq_SST, method = "PCoA", distance = fish_2019_SST_bray)
+
+# jaccard
+fish_2019_SST_jaccard <- distance(fish_2019_phyloseq_SST, method = "jaccard")
+# pcoa ordination
+fish_2019_SST_jaccard_ord <- ordinate(fish_2019_phyloseq_SST, method = "PCoA", distance = fish_2019_SST_jaccard)
 
 # adonis2
 # by margin
@@ -93,6 +107,19 @@ adonis_df <- adonis_df[ , c(6,1,2,3,4,5)]
 adonis_df <- rename(adonis_df, "Pr(>F)" = fish_2019_SST_bray_ord_adonis..Pr..F.., "F"=fish_2019_SST_bray_ord_adonis.F, R2 = fish_2019_SST_bray_ord_adonis.R2, SumOfSqs = fish_2019_SST_bray_ord_adonis.SumOfSqs, Df = fish_2019_SST_bray_ord_adonis.Df)
 write.csv(adonis_df, "output/stats/fish_2019_bray_adonis_margin_formatted.csv")
 
+# jaccard
+fish_2019_SST_jaccard_ord_adonis <- adonis2(fish_2019_SST_jaccard ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + SST + Region, by = "margin", data = metadata_2019_SST)
+
+fish_2019_SST_jaccard_ord_adonis
+adonis_df_jaccard <- data.frame(fish_2019_SST_jaccard_ord_adonis$Df, fish_2019_SST_jaccard_ord_adonis$SumOfSqs,
+                        fish_2019_SST_jaccard_ord_adonis$R2, fish_2019_SST_jaccard_ord_adonis$F,
+                        fish_2019_SST_jaccard_ord_adonis$`Pr(>F)`)
+adonis_df_jaccard
+adonis_df_jaccard$Factor <- fish_factor
+adonis_df_jaccard <- adonis_df_jaccard[ , c(6,1,2,3,4,5)]
+adonis_df_jaccard <- rename(adonis_df_jaccard, "Pr(>F)" = fish_2019_SST_jaccard_ord_adonis..Pr..F.., "F"=fish_2019_SST_jaccard_ord_adonis.F, R2 = fish_2019_SST_jaccard_ord_adonis.R2, SumOfSqs = fish_2019_SST_jaccard_ord_adonis.SumOfSqs, Df = fish_2019_SST_jaccard_ord_adonis.Df)
+write.csv(adonis_df_jaccard, "output/stats/fish_2019_jaccard_adonis_margin_formatted_latest.csv")
+
 #plot by longest blade length mean
 fish_2019_bray_ord_PCoA_LBLM <- plot_ordination(fish_2019_phyloseq_SST,fish_2019_SST_bray_ord) + 
   geom_point(mapping = aes(color = LongestBladeLengthMean,  shape = Region), size = 6, stroke = 2) +
@@ -106,6 +133,19 @@ fish_2019_bray_ord_PCoA_LBLM <- plot_ordination(fish_2019_phyloseq_SST,fish_2019
 fish_2019_bray_ord_PCoA_LBLM
 
 ggsave(fish_2019_bray_ord_PCoA_LBLM, file = "output/plots/fish_2019_bray_ord_PCoA_LLLM_region_shape_viridis.png", dpi = 400, device = "png", width = 11, height = 8.5, units = "in")
+
+fish_2019_jaccard_ord_PCoA_LBLM <- plot_ordination(fish_2019_phyloseq_SST,fish_2019_SST_jaccard_ord) + 
+  geom_point(mapping = aes(color = LongestBladeLengthMean,  shape = Region), size = 6, stroke = 2) +
+  scale_color_viridis_c(direction = -1) +
+  scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+  theme_classic() +
+  theme(legend.title = element_text(size=14), legend.text = element_text(size=14), axis.text=element_text(size=14), axis.title = element_text(size = 14) ) +
+  labs(shape = "Region", color = "Longest leaf length mean (mm)") +
+  guides(color = guide_legend(override.aes = list(size=4)), shape = guide_legend(override.aes = list(size=4)))
+
+fish_2019_jaccard_ord_PCoA_LBLM
+
+ggsave(fish_2019_jaccard_ord_PCoA_LBLM, file = "output/plots/fish_2019_jaccard_ord_PCoA_LBLM_region_shape_viridis_latest.png", dpi = 400, device = "png", width = 11, height = 8.5, units = "in")
 
 ```
 
@@ -152,9 +192,13 @@ sample_data(BB_2019_phy) <- metadata_2019_BB
 
 # bray curtis dissimilarity
 fish_2019_bray_BB <- distance(BB_2019_phy, method = "bray")
+# jaccard 
+fish_2019_jaccard_BB <- distance(BB_2019_phy, method = "jaccard")
 
 # pcoa ordination
 fish_2019_bray_ord_BB <- ordinate(BB_2019_phy, method = "PCoA", distance = fish_2019_bray_BB)
+# pcoa ordination jaccard
+fish_2019_jaccard_ord_BB <- ordinate(BB_2019_phy, method = "PCoA", distance = fish_2019_jaccard_BB)
 
 # adonis2
 fish_2019_bray_ord_adonis_margin_BB <- adonis2(fish_2019_bray_BB ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + Bay, by = "margin", data = metadata_2019_BB)
@@ -171,6 +215,11 @@ adonis_df_BB_eDNA$Factor <- fish_factor
 adonis_df_BB_eDNA <- adonis_df_BB_eDNA[ , c(6,1,2,3,4,5)]
 adonis_df_BB_eDNA <- rename(adonis_df_BB_eDNA, "Pr(>F)" = fish_2019_bray_ord_adonis_margin_BB..Pr..F.., "F"=fish_2019_bray_ord_adonis_margin_BB.F, R2 = fish_2019_bray_ord_adonis_margin_BB.R2, SumOfSqs = fish_2019_bray_ord_adonis_margin_BB.SumOfSqs, Df = fish_2019_bray_ord_adonis_margin_BB.Df)
 write.csv(adonis_df_BB_eDNA, "output/stats/fish_2019_bray_adonis_margin_formatted_BB_eDNA.csv")
+
+fish_2019_jaccard_ord_adonis_margin_BB <- adonis2(fish_2019_jaccard_BB ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + Bay, by = "margin", data = metadata_2019_BB)
+
+fish_2019_jaccard_ord_adonis_margin_BB
+write.csv(fish_2019_jaccard_ord_adonis_margin_BB, "output/stats/fish_2019_jaccard_adonis_margin_BB_eDNA_latest.csv")
 
 # order factor levels
 sample_data(BB_2019_phy)$SiteName <- factor(sample_data(BB_2019_phy)$SiteName, levels = c("Westside Park", "Masons Marina", "Campbell Cove", "Nicks Cove", "Blakes Landing", "Millerton"))
@@ -209,9 +258,13 @@ metadata_2020_BB <- metadata_2020_BB %>% mutate(Bay = recode(Bay,
 sample_data(fish_2020_phyloseq) <- metadata_2020_BB
 # bray curtis dissimilarity
 fish_2020_bray_BB <- distance(fish_2020_phyloseq, method = "bray")
+# jaccard dissimilarity
+fish_2020_jaccard_BB <- distance(fish_2020_phyloseq, method = "jaccard")
 
 # pcoa ordination
 fish_2020_bray_ord_BB <- ordinate(fish_2020_phyloseq, method = "PCoA", distance = fish_2020_bray_BB)
+# pcoa ordination jaccard
+fish_2020_jaccard_ord_BB <- ordinate(fish_2020_phyloseq, method = "PCoA", distance = fish_2020_jaccard_BB)
 
 # adonis2
 fish_2020_bray_ord_adonis_margin_BB <- adonis2(fish_2020_bray_BB ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + Bay, by = "margin", data = metadata_2020_BB)
@@ -228,6 +281,12 @@ adonis_df_BB_eDNA_2020$Factor <- fish_factor
 adonis_df_BB_eDNA_2020 <- adonis_df_BB_eDNA_2020[ , c(6,1,2,3,4,5)]
 adonis_df_BB_eDNA_2020 <- rename(adonis_df_BB_eDNA_2020, "Pr(>F)" = fish_2020_bray_ord_adonis_margin_BB..Pr..F.., "F"=fish_2020_bray_ord_adonis_margin_BB.F, R2 = fish_2020_bray_ord_adonis_margin_BB.R2, SumOfSqs = fish_2020_bray_ord_adonis_margin_BB.SumOfSqs, Df = fish_2020_bray_ord_adonis_margin_BB.Df)
 write.csv(adonis_df_BB_eDNA_2020, "output/stats/fish_2020_bray_adonis_margin_formatted_BB_eDNA.csv")
+
+# adonis2 jaccard
+fish_2020_jaccard_ord_adonis_margin_BB <- adonis2(fish_2020_jaccard_BB ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + Bay, by = "margin", data = metadata_2020_BB)
+
+fish_2020_jaccard_ord_adonis_margin_BB
+write.csv(fish_2020_jaccard_ord_adonis_margin_BB, "output/stats/fish_2020_jaccard_adonis_margin_BB_eDNA.csv")
 
 #plot by longest leaf length
 fish_2020_bray_ord_PCoA_LLLM_BB <- plot_ordination(fish_2020_phyloseq,fish_2020_bray_ord_BB, shape = "Bay") + 
@@ -616,7 +675,7 @@ for(i in seq_along(SiteName_unique)) {
 
 # bind items in list with bind_rows
 site_table <- bind_rows(site_table)
-length(unique(site_table$Species_percent_sim)) # 106 taxa
+length(unique(site_table$Species_percent_sim))
 # subset to columns of interest
 site_RelAbund <- site_table %>% select(SiteName, Species_percent_sim, RelAbund) 
 # distinct metadata
@@ -630,7 +689,7 @@ site_RelAbund_LLLM_wide <- site_RelAbund_LLLM %>%
   pivot_wider(names_from = Species_percent_sim, values_from = RelAbund) %>% 
   janitor::clean_names()
 
-str(site_RelAbund_LLLM_wide) # 31 levels (sites) of response variable LLLM x 106 predictor variables taxonomic labels
+str(site_RelAbund_LLLM_wide)
 
 train_LLLM_region = subset(site_RelAbund_LLLM_wide, site_RelAbund_LLLM_wide$region != "BB")
 write.csv(train_LLLM_region, "output/stats/Random_forest_train_LLLM_region.csv", row.names = FALSE)
@@ -661,18 +720,6 @@ site_region <- df_fish_2019 %>% select(SiteName, LongestBladeLengthMean, Density
 # join metadata
 fish_2019_LLLM_random_forest_top_taxa_all <- left_join(fish_2019_LLLM_random_forest_top_taxa, site_region) %>% 
   select(Species_percent_sim, longest_blade_length_mean, DensityShootsMean, Abundance_spp_sim, Region)
-
-fish_2019_LLLM_random_forest_top_taxa_all <- fish_2019_LLLM_random_forest_top_taxa_all %>% mutate(Species_percent_sim = recode(Species_percent_sim, "actinopteri_0_80" = "Actinopteri 0.80", 
-                                 "atherinops_affinis_0_99" = "Atherinops affinis 0.99",
-                                "embiotocidae_0_95" = "Embiotocidae 0.95",
-                                 "embiotocidae_0_97" = "Embiotocidae 0.97",
-                                "leptocottus_armatus_0_99" = "Leptocottus armatus 0.99",
-                                "pholis_0_99" = "Pholis 0.99",
-                                "pholis_ornata_0_99" = "Pholis ornata 0.99",
-                                "syngnathus_0_99" = "Syngnathus 0.99",
-                                "clupea_pallasii_0_99" = "clupea pallasii 0.99",
-                                "engraulis_mordax_0_99" = "Engraulis mordax 0.99"
-                                ))
 
 # plot all top 10 taxa with region as shape
 LLLM_RF_plot_region_shape_all_top_10 <- fish_2019_LLLM_random_forest_top_taxa_all %>% 
@@ -714,13 +761,13 @@ for(i in seq_along(LLLM_unique_top_taxa)) {
 actinopteri_80 <- subset_table_LLLM_top_taxa[[1]]
 atherinops_affinis_99 <- subset_table_LLLM_top_taxa[[2]]
 clupea_pallasii_99 <- subset_table_LLLM_top_taxa[[3]]
-embiotocidae_0_95 <- subset_table_LLLM_top_taxa[[4]]
+embiotocidae_0_90 <- subset_table_LLLM_top_taxa[[4]]
 embiotocidae_0_97 <- subset_table_LLLM_top_taxa[[5]]
 engraulis_mordax_0_99 <- subset_table_LLLM_top_taxa[[6]]
-leptocottus_armatus_0_99 <- subset_table_LLLM_top_taxa[[7]]
-pholis_0_99 <- subset_table_LLLM_top_taxa[[8]]
-pholis_ornata_0_99 <- subset_table_LLLM_top_taxa[[9]]
-syngnathus_0_99 <- subset_table_LLLM_top_taxa[[10]]
+gasterosteus_aculeatus_0_99 <- subset_table_LLLM_top_taxa[[7]]
+leptocottus_armatus_0_99 <- subset_table_LLLM_top_taxa[[8]]
+pholis_0_99 <- subset_table_LLLM_top_taxa[[9]]
+pholis_ornata_0_99 <- subset_table_LLLM_top_taxa[[10]]
 
 # random intercept for region
 # Actinopteri
@@ -731,44 +778,9 @@ summary(actinopteri_80_lme)
 pholis_ornata_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = pholis_ornata_0_99)
 summary(pholis_ornata_0_99_lme)
 
-# syngnathus_0_99
-syngnathus_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = syngnathus_0_99)
-syngnathus_0_99_lme_summary <- summary(syngnathus_0_99_lme)
-capture.output(syngnathus_0_99_lme_summary, file = "output/stats/syngnathus_0_99_lme_summary_LLLM.txt")
-
-# create the prediction data frame
-pred_overall <- ggpredict(syngnathus_0_99_lme, terms = c("longest_blade_length_mean"))  # this gives overall predictions for the model
-
-# plot the overall predictions 
-syngnathus_99_plot_overall <- ggplot(pred_overall) + 
-   geom_line(aes(x = x, y = predicted)) +          
-   geom_ribbon(aes(x = x, ymin = predicted - std.error, ymax = predicted + std.error), 
-               fill = "gray28", alpha = 0.5) +  
-   geom_point(data = syngnathus_0_99,
-              aes(x = longest_blade_length_mean, y = Abundance_spp_sim, shape = 
-                    Region), alpha = 0.5, size = 6, color = gr) + 
-   scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
-   theme_classic() +
-   theme(text = element_text(size=16), plot.title = element_text(size = 16, hjust = 0.5)) +
-   labs(x = "Longest leaf length mean (mm)", y = "", title = "Syngnathus 0.99")  
-
-syngnathus_99_plot_overall
-ggsave(syngnathus_99_plot_overall, file = "output/plots/syngnathus_99_plot_overall_prediction_LLLM.png", dpi = 400, device = "png", width = 12, height = 8, units = "in")
-
-# plot relationship with shoot density and test with cor.test
-plot(syngnathus_0_99$DensityShootsMean, syngnathus_0_99$Abundance_spp_sim)
-syngnathus_0_99_rel_abund_cortest_density <- cor.test(syngnathus_0_99$DensityShootsMean, syngnathus_0_99$Abundance_spp_sim)
-capture.output(syngnathus_0_99_rel_abund_cortest_density, file = "output/stats/syngnathus_0_99_rel_abund_cortest_density.txt")
-
-syngnathus_99_plot_shoot_density <- ggplot(syngnathus_0_99, aes(x = DensityShootsMean, y = Abundance_spp_sim)) + 
-   geom_point(aes(shape = Region), alpha = 0.5, size = 6, color = gr) + 
-   geom_smooth(data = syngnathus_0_99, formula = y ~ x, method = "lm", color = gr) + 
-   scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
-   theme_classic() +
-   theme(text = element_text(size=16), plot.title = element_text(size = 16, hjust = 0.5)) +
-   labs(x = "Shoot density per m^2", y = "", title = "Syngnathus 0.99")  
-
-syngnathus_99_plot_shoot_density
+#gasterosteus_aculeatus_0_99
+gasterosteus_aculeatus_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = gasterosteus_aculeatus_0_99)
+summary(gasterosteus_aculeatus_0_99_lme)
 
 #atherinops_affinis_0_99
 # random intercept for region
@@ -804,62 +816,39 @@ capture.output(atherinops_affinis_99_rel_abund_cortest_density, file = "output/s
 clupea_pallasii_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = clupea_pallasii_99)
 summary(clupea_pallasii_0_99_lme)
 
-# embiotocidae 95
-embiotocidae_0_95_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = embiotocidae_0_95)
-summary(embiotocidae_0_95_lme) 
-embiotocidae_0_95_lme_summary <- summary(embiotocidae_0_95_lme)
-capture.output(embiotocidae_0_95_lme_summary, file = "output/stats/embiotocidae_0_95_lme_summary_LLLM.txt")
+# embiotocidae 90
+embiotocidae_0_90_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = embiotocidae_0_90)
+summary(embiotocidae_0_90_lme) 
+embiotocidae_0_90_lme_summary <- summary(embiotocidae_0_90_lme)
+capture.output(embiotocidae_0_90_lme_summary, file = "output/stats/embiotocidae_0_90_lme_summary_LLLM.txt")
 
 # create the prediction data frame
-pred_overall <- ggpredict(embiotocidae_0_95_lme, terms = c("longest_blade_length_mean"))  # this gives overall predictions for the model
+pred_overall <- ggpredict(embiotocidae_0_90_lme, terms = c("longest_blade_length_mean"))  # this gives overall predictions for the model
 
 # plot the overall predictions 
-embiotocidae_0_95_plot_overall_no_legend <- ggplot(pred_overall) + 
+embiotocidae_0_90_plot_overall_no_legend <- ggplot(pred_overall) + 
    geom_line(aes(x = x, y = predicted)) +         
    geom_ribbon(aes(x = x, ymin = predicted - std.error, ymax = predicted + std.error), 
                fill = "gray28", alpha = 0.5) +
-   geom_point(data = embiotocidae_0_95,
+   geom_point(data = embiotocidae_0_90,
               aes(x = longest_blade_length_mean, y = Abundance_spp_sim, shape = 
                     Region), alpha = 0.5, size = 6, color = gr) + 
    scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
    theme_classic() +
    theme(text = element_text(size=16), plot.title = element_text(size = 16, hjust = 0.5), legend.position = "none") +
-   labs(x = "", y = "", title = "Embiotocidae 0.95")  
+   labs(x = "", y = "", title = "Embiotocidae 0.90")  
 
-embiotocidae_0_95_plot_overall_no_legend
-ggsave(embiotocidae_0_95_plot_overall_no_legend, file = "output/plots/embiotocidae_0_95_plot_overall_prediction_LLLM_no_legend.png", dpi = 400, device = "png", width = 12, height = 8, units = "in")
+embiotocidae_0_90_plot_overall_no_legend
+ggsave(embiotocidae_0_90_plot_overall_no_legend, file = "output/plots/embiotocidae_0_90_plot_overall_prediction_LLLM_no_legend.png", dpi = 400, device = "png", width = 12, height = 8, units = "in")
 
 # check relationship with shoot density 
-embiotocidae_0_95_rel_abund_cortest_density <- cor.test(embiotocidae_0_95$DensityShootsMean, embiotocidae_0_95$Abundance_spp_sim)
-capture.output(embiotocidae_0_95_rel_abund_cortest_density, file = "output/stats/embiotocidae_0_95_rel_abund_cortest_density")
+embiotocidae_0_90_rel_abund_cortest_density <- cor.test(embiotocidae_0_90$DensityShootsMean, embiotocidae_0_90$Abundance_spp_sim)
+capture.output(embiotocidae_0_90_rel_abund_cortest_density, file = "output/stats/embiotocidae_0_90_rel_abund_cortest_density")
 
 # embiotocidae_0_97
 embiotocidae_0_97_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = embiotocidae_0_97)
 embiotocidae_0_97_lme_summary <- summary(embiotocidae_0_97_lme)
 capture.output(embiotocidae_0_97_lme_summary, file = "output/stats/embiotocidae_0_97_lme_summary_LLLM.txt")
-
-# create the prediction data frame
-pred_overall <- ggpredict(embiotocidae_0_97_lme, terms = c("longest_blade_length_mean"))  # this gives overall predictions for the model
-
-# plot the overall predictions 
-embiotocidae_0_97_plot_overall_no_legend <- ggplot(pred_overall) + 
-   geom_line(aes(x = x, y = predicted)) +          
-   geom_ribbon(aes(x = x, ymin = predicted - std.error, ymax = predicted + std.error), 
-               fill = "gray28", alpha = 0.5) +  
-   geom_point(data = embiotocidae_0_97,
-              aes(x = longest_blade_length_mean, y = Abundance_spp_sim, shape = 
-                    Region), alpha = 0.5, size = 6, color = gr) + 
-   scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
-   theme_classic() +
-   theme(text = element_text(size=16), plot.title = element_text(size = 16, hjust = 0.5), legend.position = "none") +
-   labs(x = "Longest leaf length mean (mm)", y = "", title = "Embiotocidae 0.97")  
-
-embiotocidae_0_97_plot_overall_no_legend
-ggsave(embiotocidae_0_97_plot_overall_no_legend, file = "output/plots/embiotocidae_0_97_plot_overall_prediction_LLLM_no_legend.png", dpi = 400, device = "png", width = 12, height = 8, units = "in")
-
-# check relationship with shoot density 
-embiotocidae_0_97_rel_abund_cortest_density <- cor.test(embiotocidae_0_97$DensityShootsMean, embiotocidae_0_97$Abundance_spp_sim)
-capture.output(embiotocidae_0_97_rel_abund_cortest_density, file = "output/stats/embiotocidae_0_97_rel_abund_cortest_density.txt")
 
 # engraulis_mordax_0_99
 engraulis_mordax_0_99_lme <- lme(Abundance_spp_sim ~ longest_blade_length_mean, random = ~1 | Region, method = "REML", data = engraulis_mordax_0_99)
@@ -931,7 +920,7 @@ for(i in seq_along(SiteName_unique)) {
 
 # bind items in list with bind_rows
 site_table <- bind_rows(site_table)
-length(unique(site_table$Species_percent_sim)) # 106 taxa
+length(unique(site_table$Species_percent_sim))
 # subset to columns of interest
 site_RelAbund <- site_table %>% select(SiteName, Species_percent_sim, RelAbund) 
 
@@ -968,18 +957,18 @@ t <- tuneRF(train_region_red[1:106], train_region_red$Region,
        trace = TRUE,
        improve = 0.01)
 # mtry of 25 
-rf_region_mtry_25 <- randomForest(Region~., data=train_region_red, proximity=TRUE, importance = TRUE, mtry=25) # error rate is 24%; so model accuracy is 76%
+rf_region_mtry_25 <- randomForest(Region~., data=train_region_red, proximity=TRUE, importance = TRUE, mtry=25)
 
 # cross-validation by sequentially reducing the number of predictors (ranked by variable importance); this is useful to remove unimportant variables prior to building the final model for prediction
 rfcv_result = rfcv(trainx = train_region_red[1:106], trainy = train_region_red$Region, cv.fold = 5, scale = "log", step=0.5, predacc = "ALL")
 with(rfcv_result, plot(n.var, error.cv, log="x", type = "o", lwd=2)) 
 
 set.seed(10)
-rf_region <- randomForest(Region~., data=train_region_red, proximity=TRUE, importance = TRUE, mtry=25) # the OOB estimate of error rate is 28%; so model accuracy is 72%
+rf_region <- randomForest(Region~., data=train_region_red, proximity=TRUE, importance = TRUE, mtry=25)
 rf_region_confusion = rf_region$confusion
 
 region_pred <- predict(rf_region, test_region)
-confusionMatrix(region_pred, test_region$Region) # 83% accuracy on test data p<0.001
+confusionMatrix(region_pred, test_region$Region)
 
 varImpPlot(rf_region, sort = T,n.var = 10,main = "Top 10 - Variable Importance")
 
@@ -1007,21 +996,6 @@ Region_importance <- rbind(Imp_rf_region_MeanDecreaseAccuracy_10,Imp_rf_region_M
 Region_importance$MeanDecreaseAccuracy <- round(Region_importance$MeanDecreaseAccuracy, digits = 2)
 # round MDG to two decimals
 Region_importance$MeanDecreaseGini <- round(Region_importance$MeanDecreaseGini, digits = 2)
-# rename levels
-Region_importance <- Region_importance %>% mutate(Species_percent_sim = recode(Species_percent_sim, 
-                                "actinopteri_0_80" = "Actinopteri 0.80", 
-                                "atherinops_affinis_0_99" = "Atherinops affinis 0.99",
-                                "embiotocidae_0_90" = "Embiotocidae 0.90",
-                                "leptocottus_armatus_0_99" = "Leptocottus armatus 0.99",
-                                "pholis_0_99" = "Pholis 0.99",
-                                "pholis_ornata_0_99" = "Pholis ornata 0.99",
-                                "clupea_harengus_0_99" = "Clupea harengus 0.99",
-                                "gasterosteus_aculeatus_0_99" = "Gasterosteus aculeatus 0.99",
-                                "gymnogobius_macrognathos_0_90" = "Gymnogobius macrognathos 0.90",
-                                "anisotremus_scapularis_0_97" = "Anisotremus scapularis 0.97",
-                                "ammodytes_0_99" = "Ammodytes 0.99",
-                                "atherinopsis_californiensis_0_99" = "Atherinopsis californiensis 0.99"
-                                ))
 write_csv(Region_importance, "output/stats/Random_forest_region_importance_scores.csv")
 
 # combine the top 10 from each metric
@@ -1052,16 +1026,16 @@ for(i in seq_along(Region_unique_taxa)) {
 
 fish_2019_Region_random_forest_top_taxa <- fish_2019_Region_random_forest_top_taxa %>% mutate(Species_percent_sim = recode(Species_percent_sim, "actinopteri_0_80" = "Actinopteri 0.80", 
                                  "atherinops_affinis_0_99" = "Atherinops affinis 0.99",
-                                "embiotocidae_0_90" = "Embiotocidae 0.90",
+                                "embiotocidae_0_95" = "Embiotocidae 0.95",
                                 "leptocottus_armatus_0_99" = "Leptocottus armatus 0.99",
                                 "pholis_0_99" = "Pholis 0.99",
                                 "pholis_ornata_0_99" = "Pholis ornata 0.99",
                                 "clupea_harengus_0_99" = "Clupea harengus 0.99",
                                 "gasterosteus_aculeatus_0_99" = "Gasterosteus aculeatus 0.99",
-                                "gymnogobius_macrognathos_0_90" = "Gymnogobius macrognathos 0.90",
-                                "anisotremus_scapularis_0_97" = "Anisotremus scapularis 0.97",
-                                "ammodytes_0_99" = "Ammodytes 0.99",
-                                "atherinopsis_californiensis_0_99" = "Atherinopsis californiensis 0.99"
+                                "gobiidae_0_90" = "Gobiidae 0.90",
+                                "ammodytes_personatus_0_99" = "Ammodytes personatus 0.99",
+                                "lumpenus_0_99" = "Lumpenus 0.99",
+                                "myoxocephalus_0_99" = "Myoxocephalus 0.99"
                                 ))
 gr = c("#414451")
 # plot with region as shape
@@ -1092,7 +1066,7 @@ BB_2019_data <- data.frame(sample_data(BB_2019_phy)) # sample size is 2-3 per si
 # melt OTU table and metadata to dataframe
 BB_2019_df <- psmelt(BB_2019_phy)
 # unique species list for BB 2019
-BB_2019_species_list <- data.frame(unique(BB_2019_df$Species_percent_sim)) # 38 unique taxonomic ids (name and % sim value combined)
+BB_2019_species_list <- data.frame(unique(BB_2019_df$Species_percent_sim))
 # rename column
 BB_2019_species_list <- rename(BB_2019_species_list, Species_per_sim_list = unique.BB_2019_df.Species_percent_sim.)
 write.csv(BB_2019_species_list, file = "output/stats/BB_2019_species_list_rarefied.csv")
@@ -1107,7 +1081,7 @@ AK_2019_data <- data.frame(sample_data(AK_2019_phy)) # sample size is 2-3 per si
 # melt OTU table and metadata to dataframe
 AK_2019_df <- psmelt(AK_2019_phy)
 # unique species list for AK 2019
-AK_2019_species_list <- data.frame(unique(AK_2019_df$Species_percent_sim)) # 38 taxonomic ids (name and % sim value combined)
+AK_2019_species_list <- data.frame(unique(AK_2019_df$Species_percent_sim))
 # rename column
 AK_2019_species_list <- rename(AK_2019_species_list, Species_per_sim_list = unique.AK_2019_df.Species_percent_sim.)
 write.csv(AK_2019_species_list, file = "output/stats/AK_2019_species_list_rarefied.csv")
@@ -1122,7 +1096,7 @@ BC_2019_data <- data.frame(sample_data(BC_2019_phy)) # sample size is 2-3 per si
 # melt OTU table and metadata to dataframe
 BC_2019_df <- psmelt(BC_2019_phy)
 # unique species list for BC 2019
-BC_2019_species_list <- data.frame(unique(BC_2019_df$Species_percent_sim)) # 44 unique taxonomic ids (name and % sim value combined)
+BC_2019_species_list <- data.frame(unique(BC_2019_df$Species_percent_sim))
 # rename column
 BC_2019_species_list <- rename(BC_2019_species_list, Species_per_sim_list = unique.BC_2019_df.Species_percent_sim.)
 write.csv(BC_2019_species_list, file = "output/stats/BC_2019_species_list_rarefied.csv")
@@ -1137,7 +1111,7 @@ WA_2019_data <- data.frame(sample_data(WA_2019_phy)) # sample size is 3 per site
 # melt OTU table and metadata to dataframe
 WA_2019_df <- psmelt(WA_2019_phy)
 # unique species list for WA 2019
-WA_2019_species_list <- data.frame(unique(WA_2019_df$Species_percent_sim)) # 44 unique taxonomic ids (name and % sim value combined)
+WA_2019_species_list <- data.frame(unique(WA_2019_df$Species_percent_sim))
 # rename column
 WA_2019_species_list <- rename(WA_2019_species_list, Species_per_sim_list = unique.WA_2019_df.Species_percent_sim.)
 write.csv(WA_2019_species_list, file = "output/stats/WA_2019_species_list_rarefied.csv")
@@ -1152,7 +1126,7 @@ OR_2019_data <- data.frame(sample_data(OR_2019_phy)) # sample size is 2-3 per si
 # melt OTU table and metadata to dataframe
 OR_2019_df <- psmelt(OR_2019_phy)
 # unique species list for OR 2019
-OR_2019_species_list <- data.frame(unique(OR_2019_df$Species_percent_sim)) # 34 unique taxonomic ids (name and % sim value combined)
+OR_2019_species_list <- data.frame(unique(OR_2019_df$Species_percent_sim))
 # rename column
 OR_2019_species_list <- rename(OR_2019_species_list, Species_per_sim_list = unique.OR_2019_df.Species_percent_sim.)
 write.csv(OR_2019_species_list, file = "output/stats/OR_2019_species_list_rarefied.csv")
@@ -1167,7 +1141,7 @@ SD_2019_data <- data.frame(sample_data(SD_2019_phy)) # sample size is 2-3 per si
 # melt OTU table and metadata to dataframe
 SD_2019_df <- psmelt(SD_2019_phy)
 # unique species list for SD 2019
-SD_2019_species_list <- data.frame(unique(SD_2019_df$Species_percent_sim)) # 29 unique taxonomic ids (name and % sim value combined)
+SD_2019_species_list <- data.frame(unique(SD_2019_df$Species_percent_sim))
 # rename column
 SD_2019_species_list <- rename(SD_2019_species_list, Species_per_sim_list = unique.SD_2019_df.Species_percent_sim.)
 write.csv(SD_2019_species_list, file = "output/stats/SD_2019_species_list_rarefied.csv")
@@ -1212,15 +1186,15 @@ BB_2020_data <- data.frame(sample_data(fish_2020_phyloseq)) # n = 84, n=11 Mille
 # melt OTU and metadata to dataframe
 BB_2020_df <- psmelt(fish_2020_phyloseq)
 # unique species list for BB 2020
-BB_2020_species_list <- data.frame(unique(BB_2020_df$Species_percent_sim)) # 58 unique taxonomic ids (name and % sim value combined)
+BB_2020_species_list <- data.frame(unique(BB_2020_df$Species_percent_sim))
 # rename column
 BB_2020_species_list <- rename(BB_2020_species_list, Species_per_sim_list = unique.BB_2020_df.Species_percent_sim.)
 write.csv(BB_2020_species_list, file = "output/stats/BB_2020_species_list_rarefied.csv")
 
 # bind 2019 and 2020 BB species list
-BB_2019_2020_species_list <- bind_rows(BB_2019_species_list, BB_2020_species_list) # 96
+BB_2019_2020_species_list <- bind_rows(BB_2019_species_list, BB_2020_species_list)
 # get unique list of species percent similarity
-BB_2019_2020_species_list_unique <- unique(BB_2019_2020_species_list$Species_per_sim_list) # 61
+BB_2019_2020_species_list_unique <- unique(BB_2019_2020_species_list$Species_per_sim_list)
 BB_2019_2020_species_list_unique <- as.data.frame(BB_2019_2020_species_list_unique)
 BB_2019_2020_species_list_unique <- rename(BB_2019_2020_species_list_unique, Species_per_sim = "BB_2019_2020_species_list_unique")
 write.csv(BB_2019_2020_species_list_unique, file = "output/stats/BB_2019_2020_species_list_rarefied_unique.csv")
@@ -1304,20 +1278,23 @@ BB_2019_seine_fish_summary <- read_csv(file = "summary/BB_seine_2019_count_summa
 
 BB_2019_seine_fish_species <- unique(BB_2019_seine_fish_summary$Species)
 
-# melt with metadata 
-# non-rarefied data
-df_19 = psmelt(fish_2019_nonrarefied_phyloseq)
-df_19_BB <- df_19 %>% filter(RegionName == "Bodega")
+BB_2019_phy <- prune_samples(sample_data(fish_2019_nonrarefied_phyloseq)$Region == "BB", fish_2019_nonrarefied_phyloseq)
+# remove OTUs with zero sum abundance across samples in this phyloseq object
+BB_2019_phy = filter_taxa(BB_2019_phy, function(x) sum(x) > 0, TRUE)
+BB_2019_df = psmelt(BB_2019_phy)
+unique(BB_2019_df$OTU)
+BB_2019_spp_per_sim_unique <- unique(BB_2019_df$Species_percent_sim)
+length(BB_2019_spp_per_sim_unique)
+BB_2019_taxa_unique <- unique(BB_2019_df$Species)
+length(BB_2019_taxa_unique)
 
-BB_2019_eDNA_fish_species_per_sim <- unique(df_19_BB$Species_percent_sim)
-BB_2019_eDNA_fish_taxon <- unique(df_19_BB$Species)
+common_species_BB_2019 <- intersect(BB_2019_taxa_unique, BB_2019_seine_fish_species)
+eDNA_unique_species <- setdiff(BB_2019_taxa_unique, BB_2019_seine_fish_species)
+seine_unique_species <- setdiff(BB_2019_seine_fish_species, BB_2019_taxa_unique)
 
-common_species_BB_2019 <- intersect(BB_2019_eDNA_fish_taxon, BB_2019_seine_fish_species)
-eDNA_unique_species <- setdiff(BB_2019_eDNA_fish_taxon, BB_2019_seine_fish_species)
 # remove families and orders for which species level ids are found in the seine data
-eDNA_unique_species_reduced <- eDNA_unique_species[-which(eDNA_unique_species %in% c('Embiotocidae','Syngnathus','Stichaeidae', 'Pholis', 'Sebastes', 'Pleuronectidae', 'Actinopteri', 'Perciformes',  "Gobiidae"))] 
+eDNA_unique_species_reduced <- eDNA_unique_species[-which(eDNA_unique_species %in% c('Embiotocidae','Syngnathus','Stichaeidae', 'Pholis', 'Sebastes', 'Pleuronectidae',  "Gobiidae", "Cottidae", "Pleuronichthys"))] 
 eDNA_unique_species_reduced
-seine_unique_species <- setdiff(BB_2019_seine_fish_species, BB_2019_eDNA_fish_taxon)
 
 max_length <- length(eDNA_unique_species_reduced)
 common_species <- c(common_species_BB_2019, rep(NA, max_length - length(common_species_BB_2019)))
@@ -1325,7 +1302,6 @@ seine_unique <- c(seine_unique_species, rep(NA, max_length - length(seine_unique
 
 df_unique_common_taxa <- data.frame(eDNA_unique_species_reduced, seine_unique, common_species)
 df_unique_common_taxa <- df_unique_common_taxa %>% rename(eDNA_unique = eDNA_unique_species_reduced)
-
 write_csv(df_unique_common_taxa, file = "output/stats/BB_2019_unique_common_taxa_survey_type.csv")
 
 ```

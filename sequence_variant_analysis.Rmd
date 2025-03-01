@@ -1,7 +1,6 @@
 ---
 title: "sequence_variant_analysis"
-author: "Deanna S Beatty"
-date: "4/4/2023"
+author: "Deanna Beatty"
 output: html_document
 ---
 
@@ -23,25 +22,151 @@ library(scales); packageVersion("scales")
 
 ```{r import phyloseq objects, results=FALSE}
 Fish_phyloseq_nonrarefied_nonclustered <- readRDS(file = "output/phyloseq_object/Fish_phyloseq_nonrarefied_nonclustered.rds")
+Fish_phyloseq_nonclustered_rarefied <- readRDS(file = "output/phyloseq_object/Fish_phyloseq_nonclustered_rarefied.rds")
 
 # order factor levels
 sample_data(Fish_phyloseq_nonrarefied_nonclustered)$RegionName <- factor(sample_data(Fish_phyloseq_nonrarefied_nonclustered)$RegionName, levels = c("Alaska", "British Columbia", "Washington", "Oregon", "Bodega", "San Diego"))
-
 sample_data(Fish_phyloseq_nonrarefied_nonclustered)$Region <- factor(sample_data(Fish_phyloseq_nonrarefied_nonclustered)$Region, levels = c("AK", "BC", "WA", "OR", "BB", "SD"))
+
+sample_data(Fish_phyloseq_nonclustered_rarefied)$RegionName <- factor(sample_data(Fish_phyloseq_nonclustered_rarefied)$RegionName, levels = c("Alaska", "British Columbia", "Washington", "Oregon", "Bodega", "San Diego"))
+sample_data(Fish_phyloseq_nonclustered_rarefied)$Region <- factor(sample_data(Fish_phyloseq_nonclustered_rarefied)$Region, levels = c("AK", "BC", "WA", "OR", "BB", "SD"))
+
+# remove samples from sites in Bodega that are not part of wasting disease study
+remove_list <- c("Sacramento Landing", "Drakes Estero")
+
+Fish_phyloseq_nonrarefied_nonclustered <- subset_samples(Fish_phyloseq_nonrarefied_nonclustered, !(SiteName %in% remove_list))
+Fish_phyloseq_nonrarefied_nonclustered
+
+Fish_phyloseq_nonclustered_rarefied <- subset_samples(Fish_phyloseq_nonclustered_rarefied, !(SiteName %in% remove_list))
+Fish_phyloseq_nonclustered_rarefied 
+
+# if there are any taxa associated with the phyloseq object that have 0 counts across all remaining samples; remove these
+Fish_phyloseq_nonrarefied_nonclustered <- prune_taxa(taxa_sums(Fish_phyloseq_nonrarefied_nonclustered) > 0, Fish_phyloseq_nonrarefied_nonclustered)
+Fish_phyloseq_nonrarefied_nonclustered
+Fish_phyloseq_nonrarefied_nonclustered_total_sequences = sum(otu_table(Fish_phyloseq_nonrarefied_nonclustered))
+nsamples(Fish_phyloseq_nonrarefied_nonclustered)
+
+Fish_phyloseq_nonclustered_rarefied <- prune_taxa(taxa_sums(Fish_phyloseq_nonclustered_rarefied) > 0, Fish_phyloseq_nonclustered_rarefied)
+Fish_phyloseq_nonclustered_rarefied 
+Fish_phyloseq_nonclustered_rarefied_total_sequences = sum(otu_table(Fish_phyloseq_nonclustered_rarefied))
+Fish_phyloseq_nonclustered_rarefied_total_sequences
+nsamples(Fish_phyloseq_nonclustered_rarefied)
 
 ```
 
-```{r species assignments}
+```{r remove non-fish seqs}
+non_fish_seqs_data <- read_csv("output/exported-rep_seqs_2019_2020_dada2/non_fish_blast_hits.csv")
+unique(non_fish_seqs_data$genus_species)
+unique(non_fish_seqs_data$common_name)
+length(unique(non_fish_seqs_data$qseqid)) 
+non_fish_seq_hashid = unique(non_fish_seqs_data$qseqid)
+
+non_fish_seq_hashid_present_Fish_phyloseq_nonrarefied_nonclustered = non_fish_seq_hashid[non_fish_seq_hashid %in% taxa_names(Fish_phyloseq_nonrarefied_nonclustered)]
+non_fish_seq_hashid_present_Fish_phyloseq_nonrarefied_nonclustered
+
+non_fish_seq_hashid_present_Fish_phyloseq_nonclustered_rarefied = non_fish_seq_hashid[non_fish_seq_hashid %in% taxa_names(Fish_phyloseq_nonclustered_rarefied)]
+non_fish_seq_hashid_present_Fish_phyloseq_nonclustered_rarefied
+
+Fish_phyloseq_nonrarefied_nonclustered_filtered <- prune_taxa(!(taxa_names(Fish_phyloseq_nonrarefied_nonclustered) %in% non_fish_seq_hashid), Fish_phyloseq_nonrarefied_nonclustered)
+Fish_phyloseq_nonrarefied_nonclustered
+Fish_phyloseq_nonrarefied_nonclustered_filtered
+Fish_phyloseq_nonrarefied_nonclustered_filtered_total_sequences = sum(otu_table(Fish_phyloseq_nonrarefied_nonclustered_filtered))
+Fish_phyloseq_nonrarefied_nonclustered_filtered_total_sequence
+Fish_phyloseq_nonrarefied_nonclustered_total_sequences
+
+percent_seqs_removed_nonrarefied_nonclustered = ((Fish_phyloseq_nonrarefied_nonclustered_total_sequences - Fish_phyloseq_nonrarefied_nonclustered_filtered_total_sequences)/Fish_phyloseq_nonrarefied_nonclustered_total_sequences)
+percent_seqs_removed_nonrarefied_nonclustered
+percent_fish_sequences_of_total_following_dada2 = (1-percent_seqs_removed_nonrarefied_nonclustered)*100
+percent_fish_sequences_of_total_following_dada2
+
+any(non_fish_seq_hashid %in% taxa_names(Fish_phyloseq_nonrarefied_nonclustered_filtered))
+
+Fish_phyloseq_nonclustered_rarefied_filtered <- prune_taxa(!(taxa_names(Fish_phyloseq_nonclustered_rarefied) %in% non_fish_seq_hashid), Fish_phyloseq_nonclustered_rarefied)
+Fish_phyloseq_nonclustered_rarefied
+Fish_phyloseq_nonclustered_rarefied_filtered
+Fish_phyloseq_nonclustered_rarefied_total_sequences = sum(otu_table(Fish_phyloseq_nonclustered_rarefied))
+Fish_phyloseq_nonclustered_rarefied_filtered_total_sequences = sum(otu_table(Fish_phyloseq_nonclustered_rarefied_filtered))
+percent_seqs_removed_nonclustered_rarefied = (Fish_phyloseq_nonclustered_rarefied_total_sequences-Fish_phyloseq_nonclustered_rarefied_filtered_total_sequences)/Fish_phyloseq_nonclustered_rarefied_total_sequences
+percent_seqs_removed_nonclustered_rarefied
+
+any(non_fish_seq_hashid %in% taxa_names(Fish_phyloseq_nonclustered_rarefied_filtered))
+
+```
+
+```{r betadiv on rarefied data}
+# subset to 2019 data
+Fish_phyloseq_nonclustered_rarefied_filtered_2019 <- subset_samples(Fish_phyloseq_nonclustered_rarefied_filtered, Year == "2019")
+Fish_phyloseq_nonclustered_rarefied_filtered_2019
+
+# with SST data
+# subset to samples with SST data
+fish_2019_phyloseq_SST <- Fish_phyloseq_nonclustered_rarefied_filtered_2019 %>% 
+  subset_samples(!is.na(SST))
+fish_2019_phyloseq_SST
+
+# extract metadata as dataframe
+metadata_2019_SST <- data.frame(sample_data(fish_2019_phyloseq_SST))
+
+# bray curtis dissimilarity
+fish_2019_SST_bray <- distance(fish_2019_phyloseq_SST, method = "bray")
+# jaccard dissimilarity
+fish_2019_SST_jaccard <- distance(fish_2019_phyloseq_SST, method = "jaccard")
+
+# pcoa ordination
+fish_2019_SST_bray_ord <- ordinate(fish_2019_phyloseq_SST, method = "PCoA", distance = fish_2019_SST_bray)
+fish_2019_SST_jaccard_ord <- ordinate(fish_2019_phyloseq_SST, method = "PCoA", distance = fish_2019_SST_jaccard)
+
+# adonis2 
+fish_2019_SST_bray_adonis <- adonis2(fish_2019_SST_bray ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + SST + Region, data = metadata_2019_SST)
+fish_2019_SST_bray_adonis
+write.csv(fish_2019_SST_bray_adonis, "output/stats/fish_2019_bray_adonis_nonclustered_rarefied.csv")
+
+fish_2019_SST_jaccard_adonis <- adonis2(fish_2019_SST_jaccard ~ PrevalenceMean + SeverityMean + DensityShootsMean + LongestBladeLengthMean + SST + Region, data = metadata_2019_SST)
+fish_2019_SST_jaccard_adonis
+write.csv(fish_2019_SST_jaccard_adonis, "output/stats/fish_2019_jaccard_adonis_nonclustered_rarefied.csv")
+
+# factors
+fish_factor <- c("Lesion prevalence mean", "Lesion severity mean", "Shoot density Mean", "Longest leaf length mean", "SST", "Region", "Residual", "Total")
+adonis_df <- data.frame(fish_2019_SST_bray_adonis$Df, fish_2019_SST_bray_adonis$SumOfSqs,
+                        fish_2019_SST_bray_adonis$R2, fish_2019_SST_bray_adonis$F,
+                        fish_2019_SST_bray_adonis$`Pr(>F)`)
+adonis_df$Factor <- fish_factor
+adonis_df <- adonis_df[ , c(6,1,2,3,4,5)]
+adonis_df <- rename(adonis_df, "Pr(>F)" = fish_2019_SST_bray_adonis..Pr..F.., "F"=fish_2019_SST_bray_adonis.F, R2 = fish_2019_SST_bray_adonis.R2, SumOfSqs = fish_2019_SST_bray_adonis.SumOfSqs, Df = fish_2019_SST_bray_adonis.Df)
+write.csv(adonis_df, "output/stats/fish_2019_bray_adonis_nonclustered_rarefied_formatted.csv")
+
+#plot by longest blade length mean
+fish_2019_bray_ord_PCoA_LLLM <- plot_ordination(fish_2019_phyloseq_SST,fish_2019_SST_bray_ord) + 
+  geom_point(mapping = aes(color = LongestBladeLengthMean,  shape = Region), size = 6, stroke = 2) +
+  scale_color_viridis_c(direction = -1) +
+  scale_shape_manual(values=c(8, 15, 3, 17, 18, 16)) +
+  theme_classic() +
+  theme(legend.title = element_text(size=14), legend.text = element_text(size=14), axis.text=element_text(size=14), axis.title = element_text(size = 14) ) +
+  labs(shape = "Region", color = "Longest leaf length mean (mm)") +
+  guides(color = guide_legend(override.aes = list(size=4)), shape = guide_legend(override.aes = list(size=4)))
+
+fish_2019_bray_ord_PCoA_LLLM
+
+ggsave(fish_2019_bray_ord_PCoA_LLLM, file = "output/plots/fish_2019_nonclustered_rarefied_bray_ord_PCoA_LLLM.png", dpi = 400, device = "png", width = 11, height = 8.5, units = "in")
+
+```
+
+```{r sequence variants}
 # non-rarefied and non-clustered data 
 # melt phyloseq object to df
-Fish_nonrarefied_nonclustered <- psmelt(Fish_phyloseq_nonrarefied_nonclustered)
-# remove non-EWD sites
-Fish_nonrarefied_nonclustered <- Fish_nonrarefied_nonclustered %>% filter(SiteName != "Drakes Estero") %>% filter(SiteName != "Sacramento Landing") %>% filter(Abundance != "0") %>%  select(-RegionName)
+Fish_nonrarefied_nonclustered <- psmelt(Fish_phyloseq_nonrarefied_nonclustered_filtered)
+total_seq_count = sum(Fish_nonrarefied_nonclustered$Abundance)
+total_seq_count
 
-length(unique(Fish_nonrarefied_nonclustered$OTU)) # 4861 sequence variants ("OTU" in phyloseq objects are hashid of sequence variants from DADA2)
+length(unique(Fish_nonrarefied_nonclustered$OTU))
 Fish_nonrarefied_nonclustered_seq_variants_spp_assignments <- filter(Fish_nonrarefied_nonclustered, !is.na(Species))
-length(unique(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments$OTU)) # 1982 sequence variants with species level assignments (41% of sequences have species assignments)
-length(unique(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments$Species)) # 32 unique species
+length(unique(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments$OTU))
+total_seq_count_with_species_id_97_per_sim = sum(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments$Abundance)
+total_seq_count_with_species_id_97_per_sim
+
+total_seq_count_with_species_id_97_per_sim/total_seq_count
+
+length(unique(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments$Species))
 unique(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments$Species)
 eDNA_species_2019_2020 <- as.data.frame(unique(Fish_nonrarefied_nonclustered_seq_variants_spp_assignments$Species))
 names(eDNA_species_2019_2020)[1] <- "Taxonomy"
@@ -58,18 +183,18 @@ for (i in seq_along(spp_assigned_sv)) {
   sp_table[[i]] <- row
 }
 
-# bind list items with bind_rows
-sp_table_sv <- bind_rows(sp_table) # range 1 - 823 sequence variants per species
+# bind items in list with bind_rows
+sp_table_sv <- bind_rows(sp_table)
 
-write.csv("output/stats/sequence_variants_per_species.csv")
+# write.csv("output/stats/sequence_variants_per_species.csv")
 
-Fish_2019 <- Fish_nonrarefied_nonclustered %>% filter(Year == "2019")
-length(unique(Fish_2019$OTU)) # 2438 unique sequence variants
-sum(Fish_2019$Abundance) # 4436507 total sequences
+Fish_2019 <- Fish_nonrarefied_nonclustered %>% filter(Year == "2019") %>% filter(Abundance != "0")
+length(unique(Fish_2019$OTU))
+sum(Fish_2019$Abundance)
 
-Fish_2020 <- Fish_nonrarefied_nonclustered %>% filter(Year == "2020")
-length(unique(Fish_2020$OTU)) # 2488 unique sequence variants
-sum(Fish_2020$Abundance) # 5378189 total sequences
+Fish_2020 <- Fish_nonrarefied_nonclustered %>% filter(Year == "2020") %>% filter(Abundance != "0")
+length(unique(Fish_2020$OTU))
+sum(Fish_2020$Abundance)
 
 # unique sequence variants for each region
 AK <- Fish_2019 %>% filter(Region == "AK") %>% filter(Abundance != "0")
@@ -82,22 +207,22 @@ SD <- Fish_2019 %>% filter(Region == "SD") %>% filter(Abundance != "0")
 BB_2020 <- Fish_2020 %>% filter(Abundance != "0")
 
 AK_sv <- length(unique(AK$OTU))
-AK_sv # 429
+AK_sv
 
 BC_sv <- length(unique(BC$OTU))
-BC_sv # 382
+BC_sv
 
 WA_sv <- length(unique(WA$OTU))
-WA_sv # 390
+WA_sv
 
 OR_sv <- length(unique(OR$OTU))
-OR_sv # 413
+OR_sv
 
 BB_sv <- length(unique(BB$OTU))
-BB_sv # 539
+BB_sv
 
 SD_sv <- length(unique(SD$OTU))
-SD_sv # 343
+SD_sv
 
 ```
 
@@ -125,7 +250,7 @@ SpAccAll
 SpAccAlldf <- data.frame(Sites=as.numeric(SpAccAll$sites), Richness=SpAccAll$richness, SD=SpAccAll$sd)
 SpAccAlldf$Sites <- order(SpAccAlldf$Sites)
 
-ggplot(SpAccAlldf, aes(x = Richness)) + geom_histogram() # skewed distribution of richness
+ggplot(SpAccAlldf, aes(x = Richness)) + geom_histogram()
 
 eDNA_sv_acumm <- ggplot(data=SpAccAlldf, aes(x=Sites, y=Richness)) +
   geom_point(aes(x=Sites, y=Richness)) +
