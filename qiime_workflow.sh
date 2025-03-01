@@ -63,8 +63,8 @@ qiime feature-table tabulate-seqs \
 # 0.97
 qiime feature-classifier classify-consensus-blast \
 --i-query output/rep_seqs_2019_2020_dada2.qza \
---i-reference-reads ref_database/Nov_2022_release/12S-16S-18S-seqs.qza \
---i-reference-taxonomy ref_database/Nov_2022_release/12S-16S-18S-tax.qza \
+--i-reference-reads ref_database/Dec_2024_release/12S-16S-18S-seqs.qza \
+--i-reference-taxonomy ref_database/Dec_2024_release/12S-16S-18S-tax.qza \
 --o-classification output/rep_seqs_2019_2020_dada2_taxonomy_12S_16S_18S_97.qza \
 --p-perc-identity 0.97 \
 --p-evalue 0.00001
@@ -86,8 +86,8 @@ qiime feature-table summarize \
 # 0.99
 qiime feature-classifier classify-consensus-blast \
 --i-query output/rep_seqs_2019_2020_dada2_de_novo_97.qza \
---i-reference-reads ref_database/Nov_2022_release/12S-16S-18S-seqs.qza \
---i-reference-taxonomy ref_database/Nov_2022_release/12S-16S-18S-tax.qza \
+--i-reference-reads ref_database/Dec_2024_release/12S-16S-18S-seqs.qza \
+--i-reference-taxonomy ref_database/Dec_2024_release/12S-16S-18S-tax.qza \
 --o-classification output/rep_seqs_2019_2020_dada2_de_novo_97_taxonomy_12S_16S_18S_99.qza \
 --p-perc-identity 0.99 \
 --p-evalue 0.00001
@@ -100,8 +100,8 @@ qiime metadata tabulate \
 # 0.97
 qiime feature-classifier classify-consensus-blast \
 --i-query output/rep_seqs_2019_2020_dada2_de_novo_97.qza \
---i-reference-reads ref_database/Nov_2022_release/12S-16S-18S-seqs.qza \
---i-reference-taxonomy ref_database/Nov_2022_release/12S-16S-18S-tax.qza \
+--i-reference-reads ref_database/Dec_2024_release/12S-16S-18S-seqs.qza \
+--i-reference-taxonomy ref_database/Dec_2024_release/12S-16S-18S-tax.qza \
 --o-classification output/rep_seqs_2019_2020_dada2_de_novo_97_taxonomy_12S_16S_18S_97.qza \
 --p-perc-identity 0.97 \
 --p-evalue 0.00001
@@ -109,8 +109,8 @@ qiime feature-classifier classify-consensus-blast \
 # 0.95
 qiime feature-classifier classify-consensus-blast \
 --i-query output/rep_seqs_2019_2020_dada2_de_novo_97.qza \
---i-reference-reads ref_database/Nov_2022_release/12S-16S-18S-seqs.qza \
---i-reference-taxonomy ref_database/Nov_2022_release/12S-16S-18S-tax.qza \
+--i-reference-reads ref_database/Dec_2024_release/12S-16S-18S-seqs.qza \
+--i-reference-taxonomy ref_database/Dec_2024_release/12S-16S-18S-tax.qza \
 --o-classification output/rep_seqs_2019_2020_dada2_de_novo_97_taxonomy_12S_16S_18S_95.qza \
 --p-perc-identity 0.95 \
 --p-evalue 0.00001
@@ -118,8 +118,8 @@ qiime feature-classifier classify-consensus-blast \
 # 0.90
 qiime feature-classifier classify-consensus-blast \
 --i-query output/rep_seqs_2019_2020_dada2_de_novo_97.qza \
---i-reference-reads ref_database/Nov_2022_release/12S-16S-18S-seqs.qza \
---i-reference-taxonomy ref_database/Nov_2022_release/12S-16S-18S-tax.qza \
+--i-reference-reads ref_database/Dec_2024_release/12S-16S-18S-seqs.qza \
+--i-reference-taxonomy ref_database/Dec_2024_release/12S-16S-18S-tax.qza \
 --o-classification output/rep_seqs_2019_2020_dada2_de_novo_97_taxonomy_12S_16S_18S_90.qza \
 --p-perc-identity 0.90 \
 --p-evalue 0.00001
@@ -127,8 +127,8 @@ qiime feature-classifier classify-consensus-blast \
 # 0.80
 qiime feature-classifier classify-consensus-blast \
 --i-query output/rep_seqs_2019_2020_dada2_de_novo_97.qza \
---i-reference-reads ref_database/Nov_2022_release/12S-16S-18S-seqs.qza \
---i-reference-taxonomy ref_database/Nov_2022_release/12S-16S-18S-tax.qza \
+--i-reference-reads ref_database/Dec_2024_release/12S-16S-18S-seqs.qza \
+--i-reference-taxonomy ref_database/Dec_2024_release/12S-16S-18S-tax.qza \
 --o-classification output/rep_seqs_2019_2020_dada2_de_novo_97_taxonomy_12S_16S_18S_80.qza \
 --p-perc-identity 0.80 \
 --p-evalue 0.00001
@@ -178,3 +178,9 @@ qiime feature-table rarefy \
 --i-table output/table_2019_2020_dada2_de_novo_97_unassigned_80_removed.qza \
 --p-sampling-depth 20000 \
 --o-rarefied-table output/table_2019_2020_dada2_de_novo_97_unassigned_80_removed_r20000.qza
+
+# rarefy to even sampling depth
+qiime feature-table rarefy \
+--i-table output/table_2019_2020_dada2.qza \
+--p-sampling-depth 20000 \
+--o-rarefied-table output/table_2019_2020_dada2_r20000.qza
